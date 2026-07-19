@@ -187,3 +187,11 @@ def test_batch_wrappers_reject_wrong_tensor_ranks() -> None:
         PooledRepresentations.from_tensor(t.ones(2, dtype=t.float32))
     with pytest.raises(TypeCheckError):
         ScoreBatch.from_tensor(t.ones((1, 2), dtype=t.float32))
+
+
+def test_orthonormal_tolerance_boundary_is_pinned() -> None:
+    accepted = t.diag(t.tensor([1.0, 1.0 + 2.0e-6], dtype=t.float32))
+    OrthonormalMatrix.from_tensor(accepted)
+    rejected = t.diag(t.tensor([1.0, 1.0 + 2.6e-5], dtype=t.float32))
+    with pytest.raises(ValueError, match="not orthonormal"):
+        OrthonormalMatrix.from_tensor(rejected)

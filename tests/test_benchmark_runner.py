@@ -11,23 +11,30 @@ from concentration.benchmark import BenchmarkResult, benchmark, write_result
 def test_benchmark_runs_warmup_and_measured_iterations_with_sync() -> None:
     calls: list[str] = []
     times = iter([10.0, 14.0])
+
+    def clock() -> float:
+        calls.append("clock")
+        return next(times)
+
     result = benchmark(
         "step",
         lambda: calls.append("operation"),
         warmup=2,
         iterations=4,
         synchronize=lambda: calls.append("synchronize"),
-        clock=lambda: next(times),
+        clock=clock,
     )
     assert calls == [
         "operation",
         "operation",
         "synchronize",
+        "clock",
         "operation",
         "operation",
         "operation",
         "operation",
         "synchronize",
+        "clock",
     ]
     assert result == BenchmarkResult("step", 4, 4.0, 1.0)
 

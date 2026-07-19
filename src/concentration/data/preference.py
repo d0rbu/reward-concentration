@@ -170,6 +170,12 @@ def load_preference_dataset(dataset_id: str = PREFERENCE_DATASET_ID) -> DatasetD
     if not isinstance(loaded, DatasetDict):
         raise TypeError("preference loader must return a DatasetDict")
     assert_preference_schema(loaded)
+    for split_name, expected_rows in OBSERVED_PREFERENCE_ROWS.items():
+        if len(loaded[split_name]) != expected_rows:
+            raise ValueError(
+                f"preference row count changed for {split_name}: "
+                f"expected {expected_rows}, got {len(loaded[split_name])}"
+            )
     return loaded
 
 

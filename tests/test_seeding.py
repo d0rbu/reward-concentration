@@ -12,7 +12,8 @@ from concentration.seeding import seed_all
 from concentration.types import parse_seed
 
 
-def test_seed_all_repeats_python_and_torch_streams() -> None:
+def test_seed_all_repeats_python_and_torch_streams(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
     seed = parse_seed(123)
     seed_all(seed)
     first_python = [random.random() for _ in range(4)]

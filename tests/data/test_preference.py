@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import random
 from dataclasses import replace
 from typing import Any, cast
 from unittest.mock import Mock
@@ -120,13 +121,14 @@ def test_fixture_mirrors_real_schema_and_torch_format() -> None:
     assert fixture["train"][0]["better_response_id"].ndim == 0
 
 
-def test_preference_loader_materializes_and_asserts_schema(
+def test_preference_loader_asserts_schema_and_crashes_on_row_count_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fixture = preference_fixture()
     loader = Mock(return_value=fixture)
     monkeypatch.setattr("concentration.data.preference.load_dataset", loader)
-    assert load_preference_dataset("fixture/id") is fixture
+    with pytest.raises(ValueError, match="row count changed for train"):
+        load_preference_dataset("fixture/id")
     loader.assert_called_once_with("fixture/id")
     loader.return_value = fixture["train"]
     with pytest.raises(TypeError, match="DatasetDict"):
@@ -411,3 +413,75 @@ def test_real_qwen3_chat_template_produces_exact_response_spans() -> None:
     assert tokenizer.decode(pool_ids, skip_special_tokens=False) == response
     loss_ids = encoded.input_ids[encoded.loss_span.start : encoded.loss_span.stop]
     assert loss_ids.shape[0] > pool_ids.shape[0]
+    tail_ids = encoded.input_ids[encoded.pool_span.stop : encoded.loss_span.stop]
+    assert tokenizer.decode(tail_ids, skip_special_tokens=False) == "<|im_end|>\n"
+    assert encoded.loss_span.stop == int(encoded.input_ids.shape[0])
+
+
+def test_prompt_split_sizes_and_membership_bind_to_names() -> None:
+    fixture = preference_fixture()
+    config = DataConfig.from_raw(
+        heldout_probe_train_frac=0.25,
+        heldout_probe_test_frac=0.5,
+        seed=0,
+    )
+    splits = build_prompt_splits(fixture, config)
+    prompts = {name: {pair.prompt for pair in split.pairs} for name, split in splits.items()}
+    assert len(prompts["heldout_probe_test"]) == 6
+    assert len(prompts["heldout_probe_train"]) == 3
+    assert len(prompts["train"]) == 3
+    shuffled = sorted(f"prompt-{index}" for index in range(12))
+    random.Random(0).shuffle(shuffled)
+    assert prompts["heldout_probe_test"] == set(shuffled[:6])
+    assert prompts["heldout_probe_train"] == set(shuffled[6:9])
+    assert prompts["train"] == set(shuffled[9:])
+
+
+def test_overlong_filter_keeps_exact_max_len_and_drops_one_over() -> None:
+    tokenizer = CharacterChatTokenizer()
+    prompt = "p"
+    exact_a = "a" * 8
+    exact_b = "b" * 8
+    over = "c" * 9
+    assert len(f"<user>{prompt}</turn><assistant>{exact_a}</turn>") == 40
+
+    def response(text: str) -> PreferenceResponse:
+        return PreferenceResponse(prompt, text, _source_digest(prompt, text))
+
+    def pair(first: str, second: str) -> PreferencePair:
+        return PreferencePair(
+            prompt=prompt,
+            response_0=first,
+            response_1=second,
+            response_0_sha256=_source_digest(prompt, first),
+            response_1_sha256=_source_digest(prompt, second),
+            better_response_id=0,
+        )
+
+    boundary_split = PreferenceSplit(
+        pairs=(pair(exact_a, exact_b), pair(exact_a, over)),
+        responses=(response(exact_a), response(exact_b), response(over)),
+        duplicate_responses_removed=0,
+        blank_responses_removed=0,
+        pairs_with_blank_response=0,
+    )
+    simple_split = PreferenceSplit(
+        pairs=(pair(exact_a, exact_b),),
+        responses=(response(exact_a), response(exact_b)),
+        duplicate_responses_removed=0,
+        blank_responses_removed=0,
+        pairs_with_blank_response=0,
+    )
+    tokenized = tokenize_preference_splits(
+        PreferenceSplits(
+            train=boundary_split,
+            heldout_probe_train=simple_split,
+            heldout_probe_test=simple_split,
+        ),
+        tokenizer,
+        DataConfig.from_raw(max_len=40),
+    )
+    assert {item.source.response for item in tokenized.train.responses} == {exact_a, exact_b}
+    assert tokenized.train.overlong_responses_removed == 1
+    assert tokenized.train.incomplete_pairs_removed == 1
+    assert len(tokenized.train.pairs) == 1
