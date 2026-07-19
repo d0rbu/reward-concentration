@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+import torch as t
 from beartype import beartype
 
 from concentration.types import (
@@ -40,6 +41,12 @@ class ModelDType(StrEnum):
 
     FLOAT32 = "float32"
     BFLOAT16 = "bfloat16"
+
+
+@beartype
+def torch_dtype(dtype: ModelDType) -> t.dtype:
+    """Map an explicit model-loading dtype onto its torch dtype."""
+    return {ModelDType.FLOAT32: t.float32, ModelDType.BFLOAT16: t.bfloat16}[dtype]
 
 
 class Nonlinearity(StrEnum):
@@ -376,6 +383,21 @@ class KLAnchorConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class AlternatingMinmaxConfig:
+    """All-or-nothing alternating min-max mode; absence means single-backward GRL."""
+
+    adversary_steps: Rank
+
+    def __post_init__(self) -> None:
+        _require_phantom(self.adversary_steps, Rank, "adversary_steps")
+
+    @classmethod
+    @beartype
+    def from_raw(cls, *, adversary_steps: int | str) -> AlternatingMinmaxConfig:
+        return cls(adversary_steps=parse_rank(adversary_steps))
+
+
+@dataclass(frozen=True, slots=True)
 class ConcentrationTrainConfig:
     """Shared concentration-training hyperparameters used by later phases."""
 
@@ -400,8 +422,7 @@ class ConcentrationTrainConfig:
     )
     steps: Rank = field(default_factory=lambda: parse_rank(1000))
     grad_clip: NonNegativeFloat = field(default_factory=lambda: parse_non_negative_float(1.0))
-    alternating_minmax: bool = False
-    adversary_steps: Rank = field(default_factory=lambda: parse_rank(1))
+    alternating: AlternatingMinmaxConfig | None = None
     kl_anchor: KLAnchorConfig | None = None
 
     def __post_init__(self) -> None:
@@ -423,9 +444,10 @@ class ConcentrationTrainConfig:
         if min(self.policy_lr, self.reward_head_lr, self.adversary_lr, self.grad_clip) <= 0.0:
             raise ValueError("learning rates and grad_clip must be positive")
         _require_phantom(self.steps, Rank, "steps")
-        if type(self.alternating_minmax) is not bool:
-            raise TypeError("alternating_minmax must be bool")
-        _require_phantom(self.adversary_steps, Rank, "adversary_steps")
+        if self.alternating is not None and not isinstance(
+            self.alternating, AlternatingMinmaxConfig
+        ):
+            raise TypeError("alternating must be AlternatingMinmaxConfig or None")
         if self.kl_anchor is not None and not isinstance(self.kl_anchor, KLAnchorConfig):
             raise TypeError("kl_anchor must be KLAnchorConfig or None")
 
@@ -445,8 +467,7 @@ class ConcentrationTrainConfig:
         head_weight_decay: float | int | str = 0.0,
         steps: int | str = 1000,
         grad_clip: float | int | str = 1.0,
-        alternating_minmax: bool = False,
-        adversary_steps: int | str = 1,
+        alternating: AlternatingMinmaxConfig | None = None,
         kl_anchor: KLAnchorConfig | None = None,
     ) -> ConcentrationTrainConfig:
         return cls(
@@ -461,8 +482,7 @@ class ConcentrationTrainConfig:
             head_weight_decay=parse_non_negative_float(head_weight_decay),
             steps=parse_rank(steps),
             grad_clip=parse_non_negative_float(grad_clip),
-            alternating_minmax=alternating_minmax,
-            adversary_steps=parse_rank(adversary_steps),
+            alternating=alternating,
             kl_anchor=kl_anchor,
         )
 

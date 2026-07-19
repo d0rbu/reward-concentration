@@ -12,6 +12,7 @@ from concentration.config import (
     DEV_REWARD_MODEL_ID,
     MAIN_POLICY_MODEL_ID,
     AdvHeadConfig,
+    AlternatingMinmaxConfig,
     ConcentrationTrainConfig,
     DataConfig,
     KLAnchorConfig,
@@ -216,8 +217,7 @@ def test_concentration_train_config_refines_every_numeric_boundary() -> None:
         head_weight_decay=0,
         steps="25",
         grad_clip="0.5",
-        alternating_minmax=True,
-        adversary_steps="2",
+        alternating=AlternatingMinmaxConfig.from_raw(adversary_steps="2"),
     )
     for name in (
         "alpha",
@@ -232,9 +232,22 @@ def test_concentration_train_config_refines_every_numeric_boundary() -> None:
     assert config.lambda_schedule is schedule
     assert config.seed == 12
     assert config.steps == 25
-    assert config.adversary_steps == 2
     assert config.detach_basis is False
-    assert config.alternating_minmax is True
+    assert config.alternating is not None
+    assert config.alternating.adversary_steps == 2
+
+
+def test_alternating_minmax_bundle_is_all_or_nothing() -> None:
+    assert ConcentrationTrainConfig().alternating is None
+    bundle = AlternatingMinmaxConfig.from_raw(adversary_steps=3)
+    assert ConcentrationTrainConfig(alternating=bundle).alternating is bundle
+    assert bundle.adversary_steps == 3
+    with pytest.raises(TypeError, match="adversary_steps"):
+        AlternatingMinmaxConfig(adversary_steps=cast(Any, 0))
+    with pytest.raises(FrozenInstanceError):
+        cast(Any, bundle).adversary_steps = 4
+    with pytest.raises(TypeError, match="AlternatingMinmaxConfig"):
+        ConcentrationTrainConfig(alternating=cast(Any, True))
 
 
 @pytest.mark.parametrize(
@@ -311,7 +324,7 @@ def test_config_surface_contains_only_declared_fields() -> None:
         lambda: LambdaScheduleConfig(shape=cast(Any, "dann")),
         lambda: ConcentrationTrainConfig(lambda_schedule=cast(Any, "dann")),
         lambda: ConcentrationTrainConfig(detach_basis=cast(Any, 1)),
-        lambda: ConcentrationTrainConfig(alternating_minmax=cast(Any, 1)),
+        lambda: ConcentrationTrainConfig(alternating=cast(Any, 1)),
         lambda: TrackAConfig(algo=cast(Any, "ppo")),
         lambda: WandbConfig(mode=cast(Any, "online")),
     ],
