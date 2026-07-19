@@ -19,7 +19,7 @@ invalid boundaries, and keep code, tests, and documentation synchronized.
 ```text
 src/concentration/  package code
 tests/              unit, property, integration, and slow tests
-bench/              benchmark entry surface and JSON baselines
+bench/              measured JSON baselines
 docs/               source-of-truth documentation
 .github/workflows/  CI checks
 ```
@@ -58,5 +58,5 @@ uv run pre-commit run --all-files
 uv run pytest -m slow  # separate live-network/model integration suite
 ```
 
-The default suite excludes `slow`, runs without network or CUDA, and enforces 95% branch coverage
-across both `src` and `tests`.
+The default suite excludes `slow`, runs without network (socket-blocked) or CUDA, and enforces
+95% branch coverage over `src`.

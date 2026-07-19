@@ -31,7 +31,9 @@ only and are never used to standardize targets.
 | Preference data | `PKU-Alignment/PKU-SafeRLHF-single-dimension` |
 | Safety-evaluation prompts | `PKU-Alignment/BeaverTails-Evaluation` |
 
-The loaders assert the observed schemas before returning data. See
+The loaders assert the observed schemas before returning data. The development-tier models and
+both datasets are exercised live by the slow suite; the main-tier IDs are recorded defaults that
+have not been live-tested yet. See
 [`docs/reference/architecture.md`](docs/reference/architecture.md) for the exact fields.
 
 ## Setup and checks
@@ -42,7 +44,7 @@ uv run pre-commit install
 uv run pre-commit run --all-files
 ```
 
-The default test suite is deterministic, CPU-only, and Hugging Face offline:
+The default test suite is deterministic, CPU-only, and provably offline (socket-blocked):
 
 ```bash
 uv run pytest
@@ -60,7 +62,7 @@ uv run pytest -m slow
 ```text
 src/concentration/  importable research infrastructure
 tests/              deterministic unit, property, integration, and slow tests
-bench/              benchmark runner surface and measured JSON baseline directory
+bench/              measured JSON baseline directory (the runner lives in the package)
 docs/               source-of-truth project documentation
 .github/workflows/  continuous integration checks
 ```

@@ -57,9 +57,10 @@ pair containing one is excluded from the retained comparison list. Overlength re
 counted and removed after chat templating. A split with no response or no complete comparison raises.
 
 Chat spans are derived from rendered-template lengths and tokenizer offset mappings. The code never
-searches for response text inside the rendered conversation. `loss_span` includes the trailing
-end-of-turn token; `pool_span` contains assistant content only. Qwen3 rendering always passes
-`enable_thinking=False`.
+searches for response text inside the rendered conversation. `loss_span` runs from the start of
+assistant content to the end of the rendered conversation — the end-of-turn token plus any trailing
+template text (`<|im_end|>` and a newline for Qwen3, pinned by the live-template test); `pool_span`
+contains assistant content only. Qwen3 rendering always passes `enable_thinking=False`.
 
 ## Safety-evaluation data
 
@@ -90,14 +91,16 @@ adapter. Each prompt-response pair is rendered with the reward tokenizer's own c
 thinking disabled. The model must return `[batch, 1]` logits; those logits are cast to fp32 and
 returned without standardization or calibration.
 
-Fixed scores are stored as `scores.safetensors` plus `index.json`. A key is:
+Fixed scores are stored as `scores.safetensors` plus `index.json`. A key hashes the four
+components injectively — each component is digested to a fixed 32 bytes first, so distinct
+`(prompt, response)` pairs can never collide across field boundaries:
 
 ```text
-sha256(rm_id || chat_template_hash || prompt || response)
+sha256(sha256(rm_id) || sha256(chat_template_hash) || sha256(prompt) || sha256(response))
 ```
 
-Loading validates metadata, tensor dtype/shape/finiteness, unique contiguous indices, and file
-contents. Verification requires the cache key set to match the requested fixed dataset exactly;
+Loading validates metadata, tensor dtype/shape/finiteness, exactly one key per tensor row with
+unique contiguous indices, and file contents. Verification requires the cache key set to match the requested fixed dataset exactly;
 lookup of a missing key raises.
 
 ## Shared utilities
@@ -109,6 +112,8 @@ lookup of a missing key raises.
 
 ## Test isolation
 
-Default tests set deterministic torch algorithms, fixed seeds, disabled wandb, and offline Hugging
-Face environment variables. Tiny random Qwen3 causal and sequence-classification models cover the
-model codepaths on CPU. Live dataset/tokenizer/model checks are marked `slow` and run separately.
+Default tests set deterministic torch algorithms, fixed seeds, and disabled wandb. Offline Hugging
+Face environment variables are exported before collection (import-time snapshots make later
+per-test setting ineffective), and non-slow tests run with `socket` patched to raise on any
+connection attempt. Tiny random Qwen3 causal and sequence-classification models cover the model
+codepaths on CPU. Live dataset/tokenizer/model checks are marked `slow` and run separately.

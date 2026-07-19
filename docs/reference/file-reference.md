@@ -37,7 +37,8 @@
 
 | File | Purpose |
 |---|---|
-| `tests/conftest.py` | Deterministic, wandb-disabled, offline-fast test environment |
+| `tests/conftest.py` | Deterministic, wandb-disabled test environment; pre-collection offline env and socket guard |
+| `tests/test_network_guard.py` | Proves the default suite blocks sockets and pins the offline env |
 | `tests/test_correctness_tools.py` | Torch scaffold examples for phantom, runtime, tensor, and property checks |
 | `tests/test_types.py` | Scalar parser and tensor-wrapper unit/property tests |
 | `tests/test_config.py` | Frozen dataclass, enum, parser, and all-or-nothing bundle tests |
@@ -55,7 +56,6 @@
 | File or path | Purpose |
 |---|---|
 | `bench/__init__.py` | Benchmark-directory marker |
-| `bench/run_benchmark.py` | Thin import surface for phase-specific benchmark scripts |
 | `bench/baselines/` | Checked-in measured JSON baselines; intentionally empty in shared infrastructure |
 
 ## Documentation
@@ -77,4 +77,4 @@
 
 | File | Purpose |
 |---|---|
-| `.github/workflows/ci.yml` | Runs Ruff, ty, and the default offline pytest suite on pushes and pull requests |
+| `.github/workflows/ci.yml` | Runs Ruff, ty, and the default offline pytest suite on pull requests and pushes to main |

@@ -14,7 +14,7 @@ All project configs are frozen and expose `from_raw` boundary parsers.
 | `AdvHeadConfig` | empty hidden-dimension tuple (linear) and ReLU |
 | `LambdaScheduleConfig` | `dann`, `max=1.0`, `warmup_frac=0.1`, `k=10.0` |
 | `KLAnchorConfig` | required reference-model ID and non-negative `gamma` |
-| `ConcentrationTrainConfig` | alpha, lambda schedule, detached basis, seed, learning rates, weight decay, steps, clipping, min-max mode, optional KL bundle |
+| `ConcentrationTrainConfig` | alpha, lambda schedule, detached basis, seed, learning rates, weight decay, steps, clipping, optional alternating min-max bundle (`AlternatingMinmaxConfig` with required adversary steps), optional KL bundle |
 | `TrackAConfig` | `ppo` algorithm and seed 0; `grpo` is the other accepted value |
 | `WandbConfig` | `online` mode and project `reward-concentration` |
 
@@ -58,13 +58,13 @@ Pytest collects `tests/`, enables strict config and strict markers, and defaults
 Configured coverage targets are:
 
 ```text
---cov=concentration --cov=tests
+--cov=concentration
 ```
 
-Coverage measures branches from `src` and `tests`, requires 95%, and excludes separately selected
-slow-test function bodies. Markers are `property` and `slow`.
+Coverage measures branches from `src` only and fails below 95%. Markers are `property` and `slow`.
 
 ## Type checking and pre-commit
 
 `ty` checks Python 3.13 code. Local pre-commit hooks run lockfile validation, Ruff, ty, and the
-default pytest suite. CI invokes the same underlying commands; its workflow semantics are unchanged.
+default pytest suite. CI runs checkout, `astral-sh/setup-uv`, `uv python install 3.13`,
+`uv sync --locked`, `uv run ruff check .`, `uv run ty check`, and `uv run pytest`.

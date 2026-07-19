@@ -7,13 +7,14 @@ uv run pytest
 uv run pytest -m "not slow"
 ```
 
-`not slow` is the configured default. It is deterministic, CPU-only, and sets the Hugging Face
-libraries to offline mode. Tests build tiny random Qwen3 models from config rather than downloading
-weights. Weights & Biases is disabled.
+`not slow` is the configured default. It is deterministic, CPU-only, and provably offline: the
+Hugging Face offline variables are exported in `pytest_configure` (before test modules import
+libraries that snapshot them), and an autouse fixture patches `socket` so any connection attempt
+in a non-slow test raises. Tests build tiny random Qwen3 models from config rather than downloading
+weights. Weights & Biases is disabled. Under `CI=true` a derandomized Hypothesis profile is loaded
+so CI failures reproduce locally.
 
-Coverage measures branch coverage for both `src` and `tests`, reports missing lines, and fails below
-95%. Slow-only test functions are excluded from the fast-suite coverage denominator because they
-are selected separately.
+Coverage measures branch coverage for `src`, reports missing lines, and fails below 95%.
 
 ## Live integration suite
 
