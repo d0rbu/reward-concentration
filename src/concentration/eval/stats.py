@@ -26,9 +26,6 @@ _T_CRITICAL_95 = {
     8: 2.306,
     9: 2.262,
 }
-_NORMAL_CRITICAL_95 = 1.96
-
-
 @dataclass(frozen=True, slots=True)
 class MeanConfidenceInterval:
     """Mean and symmetric two-sided 95% confidence interval."""
@@ -57,7 +54,12 @@ def _require_finite(values: Sample, name: str) -> None:
 def _critical_value_95(degrees_of_freedom: int) -> float:
     if degrees_of_freedom < 2:
         raise ValueError("95% confidence intervals require at least 3 samples")
-    return _T_CRITICAL_95.get(degrees_of_freedom, _NORMAL_CRITICAL_95)
+    if degrees_of_freedom not in _T_CRITICAL_95:
+        raise ValueError(
+            "95% confidence intervals support 3-10 samples (sourced t table, df 2-9); "
+            f"got df={degrees_of_freedom}. Extend the table with sourced values if needed."
+        )
+    return _T_CRITICAL_95[degrees_of_freedom]
 
 
 @jaxtyped(typechecker=beartype)

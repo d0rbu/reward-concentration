@@ -59,11 +59,9 @@ def test_mean_confidence_interval_matches_numpy_reference(values: list[float]) -
     assert result.half_width == pytest.approx(expected)
 
 
-def test_mean_confidence_interval_uses_normal_limit_after_table() -> None:
-    values = t.arange(11, dtype=t.float64)
-    result = mean_confidence_interval(values)
-    expected = 1.96 * float(values.std(unbiased=True)) / math.sqrt(11)
-    assert result.half_width == pytest.approx(expected)
+def test_mean_confidence_interval_crashes_beyond_sourced_table() -> None:
+    with pytest.raises(ValueError, match="3-10 samples"):
+        mean_confidence_interval(t.arange(11, dtype=t.float64))
 
 
 @pytest.mark.parametrize(
