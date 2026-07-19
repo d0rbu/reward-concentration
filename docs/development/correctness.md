@@ -1,54 +1,51 @@
 # Correctness
 
-The template bias is to make bad state unrepresentable.
+The project bias is to make bad state unrepresentable and to crash at the boundary when that is not
+possible.
 
-## Phantom Types
+## Scalar refinement
 
-Use `phantom-types` when a primitive type is too broad for a domain concept.
+Use `phantom-types` for domain concepts narrower than Python primitives. The project defines:
 
-Examples in this repo:
+- `Rank`: positive integer;
+- `Seed`: integer in `[0, 2**32 - 1]`;
+- `UnitInterval`: finite float in `[0, 1]`;
+- `NonNegativeFloat`: finite float greater than or equal to zero.
 
-- `Probability`: `float` in `[0, 1]`, demonstrated in `tests/test_correctness_tools.py`
+Raw strings and numbers enter through the matching `parse_*` functions. Frozen configuration
+dataclasses store the refined values.
 
-Pattern:
+## Tensor contracts
 
-1. Define the phantom type near the code that owns the domain concept.
-2. Add a `parse_*` function that refines raw values.
-3. Store only refined values in dataclasses and core APIs.
-4. Use `st.from_type(YourType)` in property tests when a strategy exists.
+PyTorch is imported as `t`. NumPy imports are banned in `src/` and permitted in tests only for
+independent reference calculations.
 
-## Runtime Checks
-
-Use `beartype` at runtime boundaries and on small public functions where type violations
-would otherwise become confusing downstream failures.
-
-Do not decorate every private helper reflexively. Prefer validation at boundaries and
-around domain invariants.
-
-## Array Contracts
-
-Use `jaxtyping` for NumPy, JAX, PyTorch, or other array-like values when shape and dtype
-matter. Pair it with `beartype`:
+Every tensor signature combines `jaxtyping` with `beartype`:
 
 ```python
+import torch as t
 from beartype import beartype
-from jaxtyping import Float64, jaxtyped
+from jaxtyping import Float, jaxtyped
 
-Vector = Float64[np.ndarray, "n"]
+Batch = Float[t.Tensor, "batch hidden"]
 
 @jaxtyped(typechecker=beartype)
-def normalize_weights(weights: Vector) -> Vector:
-    ...
+def transform(values: Batch) -> Batch:
+    return values
 ```
 
-## Property Tests
+Semantic tensor invariants use smart constructors. `OrthonormalMatrix` requires non-empty finite
+fp32 values and `max(abs(Q.T @ Q - I)) <= 1e-5`; `PooledRepresentations` and `ScoreBatch` require
+finite, non-empty fp32 batches.
 
-Use Hypothesis for:
+## Runtime boundaries
 
-- normalization and conservation laws
-- parser and serializer round trips
-- shape-preserving transformations
-- monotonicity and ordering invariants
-- edge cases that are easy to miss with example tests
+Validate schema, dtype, shape, finite values, span order, cache completeness, and model-output
+contracts before downstream code can consume them. Invalid input raises immediately. Do not catch
+exceptions to substitute defaults or silently truncate data.
 
-Keep generated examples bounded so the default test suite stays fast.
+## Property and reference tests
+
+Use Hypothesis for random shapes, padding patterns, scalar domains, and algebraic invariants.
+Novel numeric logic also needs an independently written reference: Python loops or NumPy in tests
+are preferred when they do not share the implementation's vectorized codepath.

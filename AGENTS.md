@@ -1,60 +1,62 @@
-# AGENTS.md - research-project-template
+# AGENTS.md — reward-concentration
 
-You are working in a correctness-first Python research template. The repo should stay
-small, explicit, and easy to reuse as the base for new research projects.
-
-This file is the AI-agent entry point. It should point to docs that contain durable
-project knowledge. If you want to add detail here, usually update the linked doc instead.
+This is a correctness-first Python ML research codebase. Keep the package explicit, fail loudly at
+invalid boundaries, and keep code, tests, and documentation synchronized.
 
 ## Read these first
 
-- [`README.md`](README.md) - project pitch and quickstart
-- [`docs/README.md`](docs/README.md) - documentation map
-- [`docs/onboarding/getting-started.md`](docs/onboarding/getting-started.md) - local setup
-- [`docs/onboarding/workflows.md`](docs/onboarding/workflows.md) - common development flows
-- [`docs/development/correctness.md`](docs/development/correctness.md) - correctness philosophy and tools
-- [`docs/reference/architecture.md`](docs/reference/architecture.md) - package architecture
-- [`docs/reference/configuration.md`](docs/reference/configuration.md) - tool configuration
-- [`docs/reference/file-reference.md`](docs/reference/file-reference.md) - file-by-file reference
+- [`README.md`](README.md) — project scope and quickstart
+- [`docs/README.md`](docs/README.md) — documentation map
+- [`docs/onboarding/getting-started.md`](docs/onboarding/getting-started.md) — local setup
+- [`docs/onboarding/workflows.md`](docs/onboarding/workflows.md) — common development flows
+- [`docs/development/correctness.md`](docs/development/correctness.md) — correctness philosophy
+- [`docs/reference/architecture.md`](docs/reference/architecture.md) — package architecture
+- [`docs/reference/configuration.md`](docs/reference/configuration.md) — code and tool configuration
+- [`docs/reference/file-reference.md`](docs/reference/file-reference.md) — file-by-file reference
 
-## Repo layout
+## Repository layout
 
-```
-tests/              pytest suite, including property tests
+```text
+src/concentration/  package code
+tests/              unit, property, integration, and slow tests
+bench/              measured JSON baselines
 docs/               source-of-truth documentation
 .github/workflows/  CI checks
 ```
 
 ## Conventions
 
-- Use `uv sync` to install and `uv run ...` to invoke project tools.
+- Use `uv sync` to install and `uv run ...` to invoke tools.
 - Run `uv run pre-commit run --all-files` before handoff.
-- The pre-commit hooks enforce `uv lock --check`, `ruff`, `ty`, and `pytest`.
-- Prefer making bad state unrepresentable over documenting invalid states after the fact.
-- Use `phantom-types` for domain invariants that narrow primitive values.
-- Use `beartype` at runtime boundaries where invalid values can enter the system.
-- Use `jaxtyping` for array shape and dtype contracts.
-- Use Hypothesis for invariants, edge cases, and regression tests that should hold over many inputs.
+- Import PyTorch as `import torch as t` throughout `src/`.
+- Never import NumPy in `src/`; Ruff enforces this. NumPy is allowed in tests as an independent
+  numeric reference.
+- Put `jaxtyping` shapes/dtypes plus `@jaxtyped(typechecker=beartype)` on tensor signatures.
+- Refine raw scalar values into phantom types at boundaries.
+- Prefer making bad state unrepresentable; otherwise validate and crash immediately.
+- Do not add defensive fallbacks or exception swallowing.
+- Use Hypothesis for broad invariants and independent references for novel numeric logic.
 - Keep imports at the top of each file.
-- Keep docs and code in sync; when behavior changes, update `docs/reference/file-reference.md`.
+- Update `docs/reference/file-reference.md` whenever files change.
 
 ## Correctness tools
 
-The scaffold tests demonstrate:
+The scaffold demonstration in `tests/test_correctness_tools.py` now uses torch and preserves the
+template's examples of:
 
-- `Probability`: a phantom type for closed-range probabilities.
-- `normalize_weights`: a `jaxtyping` + `beartype` checked NumPy function.
-- property tests that use `st.from_type(...)` with phantom types.
+- a closed-range probability phantom type and `parse_probability` refinement;
+- `jaxtyping` plus `beartype` tensor contracts;
+- property tests generated from phantom types.
 
-Copy these patterns for project-specific concepts such as dataset splits, feature IDs,
-sample counts, model dimensions, or validated artifact paths.
+Project-owned types live in `src/concentration/types.py`: positive `Rank`, bounded `Seed`,
+`UnitInterval`, `NonNegativeFloat`, `OrthonormalMatrix`, `PooledRepresentations`, and `ScoreBatch`.
 
 ## Testing
 
 ```bash
 uv run pre-commit run --all-files
+uv run pytest -m slow  # separate live-network/model integration suite
 ```
 
-`pytest` is configured to collect from `tests/` and require 95% coverage on the
-current scaffold tests. Update coverage `source` when the project grows real source
-modules.
+The default suite excludes `slow`, runs without network (socket-blocked) or CUDA, and enforces
+95% branch coverage over `src`.

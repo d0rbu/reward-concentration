@@ -1,27 +1,33 @@
 # Experiment Lifecycle
 
-Use this as the default lifecycle for research work built from the template.
+Use this lifecycle for experiments built on the shared infrastructure.
 
-## 1. Define the Question
+## 1. State the executable question
 
-Write down the hypothesis, metric, and expected failure modes before adding code.
+Record the hypothesis, metric, comparison, and failure modes in the experiment artifact before
+running it. Do not encode unimplemented research plans in reference documentation.
 
-## 2. Make State Explicit
+## 2. Validate inputs
 
-Represent raw config as validated dataclasses. Use phantom types for values that have
-domain bounds such as probabilities, positive counts, feature IDs, seeds, and split
-fractions.
+Parse raw config into frozen dataclasses, assert external schemas, build prompt-disjoint splits,
+and verify every fixed response has a raw reward score in the cache.
 
-## 3. Build Small Reusable Units
+## 3. Seed and log
 
-Keep reusable logic in a real module once the project has source code. Keep one-off
-orchestration in scripts or notebooks that call reusable code.
+Call `seed_all` with the config seed. Create a `RunLogger`: every record goes to a new JSONL file,
+with wandb mirroring controlled by `WandbConfig`.
 
-## 4. Test Invariants
+## 4. Build small reusable units
 
-Add example tests for known cases and property tests for broad invariants.
+Keep reusable logic in `src/concentration/` and thin orchestration or profiling entry surfaces
+outside core modules. Pass masks, spans, and refined config explicitly.
 
-## 5. Record Outputs
+## 5. Test invariants
 
-Keep generated artifacts out of git by default. Put durable notes in docs or experiment
-reports, and make artifact paths explicit.
+Add deterministic examples, independent numerical references, and bounded property tests. Use tiny
+random models in the default suite and mark real downloads `slow`.
+
+## 6. Record outputs
+
+Keep generated artifacts out of git by default. Check in benchmark baselines only as measured JSON
+data, and never overwrite a prior baseline silently.

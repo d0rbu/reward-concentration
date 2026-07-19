@@ -1,20 +1,37 @@
 [project]
-name = "research-project-template"
+name = "reward-concentration"
 version = "0.1.0"
-description = "Correctness-first Python boilerplate for research projects."
+description = "Correctness-first research infrastructure for preference representation concentration."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = "MIT"
 authors = [{ name = "Henry Castillo" }]
 dependencies = [
+    "accelerate>=1.10.0",
     "beartype>=0.22.0",
+    "datasets>=4.0.0",
     "jaxtyping>=0.3.0",
-    "numpy>=2.0.0",
+    "lm-eval>=0.4.9.1",
+    "matplotlib>=3.10.0",
+    "peft>=0.17.0",
     "phantom-types[hypothesis]>=3.0.0",
+    "safetensors>=0.6.0",
+    "torch>=2.7.0",
+    "tqdm>=4.67.0",
+    "transformers>=4.55.0",
+    "trl>=0.21.0",
+    "wandb>=0.21.0",
 ]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [tool.uv]
-package = false
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/concentration"]
 
 [dependency-groups]
 dev = [
@@ -32,7 +49,8 @@ addopts = [
     "-ra",
     "--strict-config",
     "--strict-markers",
-    "--cov=tests",
+    "-m=not slow",
+    "--cov=concentration",
     "--cov-report=term-missing",
 ]
 markers = [
@@ -42,7 +60,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["tests"]
+source = ["src"]
 
 [tool.coverage.report]
 show_missing = true
@@ -79,10 +97,17 @@ select = [
     "C4",  # flake8-comprehensions
     "SIM", # flake8-simplify
     "RET", # flake8-return
+    "TID", # flake8-tidy-imports
 ]
 ignore = [
     "E501", # line too long; formatting and prose readability own this
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["tests"]
+known-first-party = ["concentration", "tests"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"numpy" = { msg = "NumPy is forbidden in src; use torch (tests are exempt)." }
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["TID251"]

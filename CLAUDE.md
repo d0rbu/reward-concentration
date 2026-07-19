@@ -1,4 +1,4 @@
-# CLAUDE.md - research-project-template
+# CLAUDE.md — reward-concentration
 
 Follow [`AGENTS.md`](AGENTS.md) first. It is the source of truth for agent behavior in
 this repository.

@@ -1,27 +1,26 @@
 # Documentation
 
-The docs are the source of truth for this template. Keep top-level files short and
-update these documents when behavior, commands, or layout changes.
+These documents describe the behavior currently implemented by `reward-concentration`. Keep them
+in sync with code and avoid recording unimplemented research designs as if they were available.
 
 ## Onboarding
 
-- [`onboarding/getting-started.md`](onboarding/getting-started.md) - local setup
-- [`onboarding/workflows.md`](onboarding/workflows.md) - common development flows
-- [`onboarding/glossary.md`](onboarding/glossary.md) - project vocabulary
+- [`onboarding/getting-started.md`](onboarding/getting-started.md) — environment setup and checks
+- [`onboarding/workflows.md`](onboarding/workflows.md) — common contribution flows
+- [`onboarding/glossary.md`](onboarding/glossary.md) — project vocabulary
 
 ## Development
 
-- [`development/correctness.md`](development/correctness.md) - how to use phantom
-  types, runtime checks, array contracts, and property tests
-- [`development/testing.md`](development/testing.md) - test strategy and commands
+- [`development/correctness.md`](development/correctness.md) — scalar and tensor contracts
+- [`development/testing.md`](development/testing.md) — deterministic, property, and slow tests
 
 ## Pipelines
 
-- [`pipelines/experiment-lifecycle.md`](pipelines/experiment-lifecycle.md) - a reusable
-  lifecycle for research experiments
+- [`pipelines/experiment-lifecycle.md`](pipelines/experiment-lifecycle.md) — reusable experiment
+  lifecycle for code built on the shared infrastructure
 
 ## Reference
 
-- [`reference/architecture.md`](reference/architecture.md) - package architecture
-- [`reference/configuration.md`](reference/configuration.md) - tool configuration
-- [`reference/file-reference.md`](reference/file-reference.md) - file-by-file map
+- [`reference/architecture.md`](reference/architecture.md) — modules and external data contracts
+- [`reference/configuration.md`](reference/configuration.md) — dataclasses and tool configuration
+- [`reference/file-reference.md`](reference/file-reference.md) — complete tracked-file map

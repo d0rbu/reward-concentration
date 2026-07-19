@@ -1,53 +1,71 @@
-# research-project-template
+# Reward Concentration
 
-Correctness-first Python boilerplate for research projects.
+Correctness-first infrastructure for research on preference representation concentration in
+language models. The current package establishes the shared data, model, caching, statistics,
+configuration, seeding, logging, and benchmark boundaries needed by later experiments; it does
+not yet implement concentration training or report research results.
 
-The template is intentionally small, but the repo is set up like a real project: `uv`
-for packaging, `ruff` for linting, `ty` for type checking, `pytest` plus coverage and
-Hypothesis for tests, and a docs hierarchy that future contributors and AI agents can
-use as the source of truth.
+## Current scope
 
-## 1-minute quickstart
+- validated phantom scalar types and fp32 tensor wrappers
+- frozen, boundary-parsed experiment configuration
+- schema-locked PKU preference and BeaverTails evaluation loaders
+- deterministic prompt-level preference splits, deduplication, chat spans, and length filtering
+- Qwen3 causal-LM loading, exact layer hooks, and four response-pooling modes
+- frozen Skywork sequence-classification reward scoring and verified raw-score caches
+- torch-only confidence intervals, Welch t tests, R-squared, and binary AUC
+- deterministic seeding plus JSONL-always and optional Weights & Biases logging
+- a benchmark runner and an intentionally empty measured-baseline directory
+
+Raw reward-model logits are preserved exactly. Score means and standard deviations are diagnostics
+only and are never used to standardize targets.
+
+## Verified external contracts
+
+| Role | Hugging Face ID |
+|---|---|
+| Development policy | `Qwen/Qwen3-0.6B-Base` |
+| Main policy | `Qwen/Qwen3-1.7B-Base` |
+| Development reward model | `Skywork/Skywork-Reward-V2-Qwen3-0.6B` |
+| Default reward model | `Skywork/Skywork-Reward-V2-Qwen3-1.7B` |
+| Preference data | `PKU-Alignment/PKU-SafeRLHF-single-dimension` |
+| Safety-evaluation prompts | `PKU-Alignment/BeaverTails-Evaluation` |
+
+The loaders assert the observed schemas before returning data. The development-tier models and
+both datasets are exercised live by the slow suite; the main-tier IDs are recorded defaults that
+have not been live-tested yet. See
+[`docs/reference/architecture.md`](docs/reference/architecture.md) for the exact fields.
+
+## Setup and checks
 
 ```bash
-git clone https://github.com/d0rbu/research-project-template.git
-cd research-project-template
 uv sync
 uv run pre-commit install
 uv run pre-commit run --all-files
 ```
 
-## What this includes
+The default test suite is deterministic, CPU-only, and provably offline (socket-blocked):
 
-| Area | Tooling |
-|---|---|
-| Package management | `uv`, `pyproject.toml`, `uv.lock` |
-| Local commit checks | `pre-commit` |
-| Linting | `ruff` |
-| Type checking | `ty` |
-| Tests | `pytest`, `pytest-cov`, `hypothesis` |
-| Runtime contracts | `phantom-types`, `beartype` |
-| Array shape/dtype checks | `jaxtyping` |
-| Agent guidance | `AGENTS.md`, `CLAUDE.md` |
-
-## Repo layout
-
-```
-tests/              pytest suite, including property tests
-docs/               project documentation
-.github/workflows/  CI checks
+```bash
+uv run pytest
+uv run pytest -m "not slow"
 ```
 
-## Where to go next
+Live dataset and model checks are separate, require network access, and can download model weights:
 
-| You want to... | Read |
-|---|---|
-| Start developing | [`docs/onboarding/getting-started.md`](docs/onboarding/getting-started.md) |
-| Understand the correctness model | [`docs/development/correctness.md`](docs/development/correctness.md) |
-| Add a new experiment | [`docs/pipelines/experiment-lifecycle.md`](docs/pipelines/experiment-lifecycle.md) |
-| See tool configuration | [`docs/reference/configuration.md`](docs/reference/configuration.md) |
-| Find a file's purpose | [`docs/reference/file-reference.md`](docs/reference/file-reference.md) |
+```bash
+uv run pytest -m slow
+```
 
-## License
+## Repository layout
 
-MIT. See [`LICENSE`](LICENSE).
+```text
+src/concentration/  importable research infrastructure
+tests/              deterministic unit, property, integration, and slow tests
+bench/              measured JSON baseline directory (the runner lives in the package)
+docs/               source-of-truth project documentation
+.github/workflows/  continuous integration checks
+```
+
+Start with [`docs/README.md`](docs/README.md). The project is MIT licensed; see
+[`LICENSE`](LICENSE).
