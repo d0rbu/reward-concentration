@@ -10,6 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 import torch as t
+from beartype.roar import BeartypeCallHintParamViolation
 from hypothesis import given
 from hypothesis import strategies as st
 from safetensors.torch import save_file
@@ -30,7 +31,7 @@ from concentration.models.reward_model import (
     score_cache_key,
 )
 from concentration.run_logging import RunLogger
-from concentration.types import ScoreBatch
+from concentration.types import ScoreBatch, parse_rank
 
 
 class FakeRewardTokenizer:
@@ -99,8 +100,8 @@ def test_sequence_classifier_returns_exact_raw_logits_in_batches() -> None:
         model,
         tokenizer,
         rm_id="fixture/rm",
-        batch_size=2,
-        max_length=200,
+        batch_size=parse_rank(2),
+        max_length=parse_rank(200),
         device="cpu",
     )
     prompts = ["p0", "p1", "p2"]
@@ -129,8 +130,8 @@ def test_reward_scoring_crashes_on_invalid_batches_and_length() -> None:
         tiny_reward_model(),
         FakeRewardTokenizer(),
         rm_id="fixture/rm",
-        batch_size=2,
-        max_length=20,
+        batch_size=parse_rank(2),
+        max_length=parse_rank(20),
         device="cpu",
     )
     with pytest.raises(ValueError, match="equal lengths"):
@@ -153,8 +154,8 @@ def test_reward_scoring_crashes_on_non_scalar_classifier() -> None:
         WrongShapeModel(),
         FakeRewardTokenizer(),
         rm_id="fixture/rm",
-        batch_size=1,
-        max_length=200,
+        batch_size=parse_rank(1),
+        max_length=parse_rank(200),
         device="cpu",
     )
     with pytest.raises(ValueError, match=r"\[batch, 1\]"):
@@ -164,13 +165,13 @@ def test_reward_scoring_crashes_on_non_scalar_classifier() -> None:
 def test_reward_model_constructor_and_template_hash_validation() -> None:
     tokenizer = FakeRewardTokenizer()
     with pytest.raises(ValueError, match="rm_id"):
-        SequenceClassificationRewardModel(tiny_reward_model(), tokenizer, rm_id="", batch_size=1, max_length=10, device="cpu")
-    with pytest.raises(ValueError, match="batch_size"):
-        SequenceClassificationRewardModel(tiny_reward_model(), tokenizer, rm_id="rm", batch_size=0, max_length=10, device="cpu")
-    with pytest.raises(ValueError, match="max_length"):
-        SequenceClassificationRewardModel(tiny_reward_model(), tokenizer, rm_id="rm", batch_size=1, max_length=0, device="cpu")
+        SequenceClassificationRewardModel(tiny_reward_model(), tokenizer, rm_id="", batch_size=parse_rank(1), max_length=parse_rank(10), device="cpu")
+    with pytest.raises(BeartypeCallHintParamViolation):
+        SequenceClassificationRewardModel(tiny_reward_model(), tokenizer, rm_id="rm", batch_size=cast(Any, 0), max_length=parse_rank(10), device="cpu")
+    with pytest.raises(BeartypeCallHintParamViolation):
+        SequenceClassificationRewardModel(tiny_reward_model(), tokenizer, rm_id="rm", batch_size=parse_rank(1), max_length=cast(Any, 0), device="cpu")
     with pytest.raises(ValueError, match="device"):
-        SequenceClassificationRewardModel(tiny_reward_model(), tokenizer, rm_id="rm", batch_size=1, max_length=10, device="")
+        SequenceClassificationRewardModel(tiny_reward_model(), tokenizer, rm_id="rm", batch_size=parse_rank(1), max_length=parse_rank(10), device="")
     tokenizer.chat_template = ""
     with pytest.raises(ValueError, match="chat template"):
         chat_template_hash(tokenizer)
@@ -200,8 +201,8 @@ def test_reward_chat_and_tokenizer_output_contracts_crash_loudly() -> None:
         tiny_reward_model(),
         invalid_tokenizer,
         rm_id="fixture/rm",
-        batch_size=1,
-        max_length=20,
+        batch_size=parse_rank(1),
+        max_length=parse_rank(20),
         device="cpu",
     )
     with pytest.raises(TypeError, match="rank-2"):
@@ -218,8 +219,8 @@ def test_reward_scoring_crashes_when_model_returns_wrong_batch_size() -> None:
         WrongBatchModel(),
         FakeRewardTokenizer(),
         rm_id="fixture/rm",
-        batch_size=2,
-        max_length=200,
+        batch_size=parse_rank(2),
+        max_length=parse_rank(200),
         device="cpu",
     )
     with pytest.raises(RuntimeError, match="wrong number"):
@@ -269,7 +270,12 @@ def test_score_cache_key_is_exact_stable_sha256(
     prompt: str,
     response: str,
 ) -> None:
-    expected = hashlib.sha256((rm_id + template_hash + prompt + response).encode()).hexdigest()
+    expected = hashlib.sha256(
+        b"".join(
+            hashlib.sha256(component.encode()).digest()
+            for component in (rm_id, template_hash, prompt, response)
+        )
+    ).hexdigest()
     assert score_cache_key(rm_id, template_hash, prompt, response) == expected
 
 
@@ -433,3 +439,62 @@ def test_real_skywork_dev_reward_model_loads_and_returns_raw_score() -> None:
     assert reward_model.rm_id == DEV_REWARD_MODEL_ID
     del scores, reward_model
     gc.collect()
+
+
+def test_score_cache_key_is_injective_across_field_boundaries() -> None:
+    assert score_cache_key(
+        "rm", "h" * 64, "How do I pick a lock?", "You should not do that."
+    ) != score_cache_key("rm", "h" * 64, "How do I pick a lock?Y", "ou should not do that.")
+
+
+def test_cache_lookup_crashes_for_absent_boundary_shifted_pair(tmp_path: Path) -> None:
+    cache = ScoreCache.build(
+        tmp_path / "cache",
+        rm_id="rm",
+        template_hash="h" * 64,
+        prompts=["How do I pick a lock?"],
+        responses=["You should not do that."],
+        scores=ScoreBatch.from_tensor(t.tensor([3.25], dtype=t.float32)),
+    )
+    with pytest.raises(KeyError, match="missing reward score"):
+        cache.lookup(["How do I pick a lock?Y"], ["ou should not do that."])
+
+
+def test_cache_build_accepts_distinct_boundary_shifted_pairs(tmp_path: Path) -> None:
+    cache = ScoreCache.build(
+        tmp_path / "cache",
+        rm_id="rm",
+        template_hash="h" * 64,
+        prompts=["How do I pick a lock?", "How do I pick a lock?Y"],
+        responses=["You should not do that.", "ou should not do that."],
+        scores=ScoreBatch.from_tensor(t.tensor([3.25, -1.5], dtype=t.float32)),
+    )
+    looked_up = cache.lookup(["How do I pick a lock?Y"], ["ou should not do that."])
+    assert float(looked_up.tensor[0]) == -1.5
+
+
+def test_cache_load_rejects_duplicate_row_references(tmp_path: Path) -> None:
+    cache_dir = tmp_path / "cache"
+    _build_cache(cache_dir)
+    payload = json.loads((cache_dir / INDEX_FILENAME).read_text(encoding="utf-8"))
+    payload["index"]["f" * 64] = 0
+    (cache_dir / INDEX_FILENAME).write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="exactly one key per tensor row"):
+        ScoreCache.load(cache_dir)
+
+
+def test_cache_verify_crashes_on_missing_dataset_pairs(tmp_path: Path) -> None:
+    cache = _build_cache(tmp_path / "cache")
+    with pytest.raises(KeyError, match=r"missing=1 extra=0"):
+        cache.verify(
+            "fixture/rm",
+            "a" * 64,
+            ["p0", "p1", "p2", "p3"],
+            ["r0", "r1", "r2", "r3"],
+        )
+
+
+def test_loaded_cache_index_is_immutable(tmp_path: Path) -> None:
+    cache = _build_cache(tmp_path / "cache")
+    with pytest.raises(TypeError):
+        cast(Any, cache.index)["x" * 64] = 0

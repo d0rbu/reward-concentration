@@ -4,22 +4,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
+from itertools import batched
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Protocol
 
 import torch as t
 from beartype import beartype
 from jaxtyping import Float32, jaxtyped
 from safetensors.torch import load_file, save_file
-from torch import nn
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from concentration.config import ModelDType, RewardModelConfig
+from concentration.config import RewardModelConfig, torch_dtype
 from concentration.run_logging import RunLogger
-from concentration.types import ScoreBatch
+from concentration.types import Rank, ScoreBatch
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 SCORES_FILENAME = "scores.safetensors"
 INDEX_FILENAME = "index.json"
 RawScores = Float32[t.Tensor, "batch"]
@@ -37,10 +39,6 @@ class RewardModel(Protocol):
         prompts: list[str],
         responses: list[str],
     ) -> RawScores: ...  # pragma: no cover - protocol declaration
-
-
-def _torch_dtype(dtype: ModelDType) -> t.dtype:
-    return {ModelDType.FLOAT32: t.float32, ModelDType.BFLOAT16: t.bfloat16}[dtype]
 
 
 @beartype
@@ -74,20 +72,16 @@ class SequenceClassificationRewardModel:
     @beartype
     def __init__(
         self,
-        model: nn.Module,
+        model: t.nn.Module,
         tokenizer: Any,
         *,
         rm_id: str,
-        batch_size: int,
-        max_length: int,
+        batch_size: Rank,
+        max_length: Rank,
         device: str,
     ) -> None:
         if not rm_id.strip():
             raise ValueError("rm_id must be non-empty")
-        if type(batch_size) is not int or batch_size <= 0:
-            raise ValueError("batch_size must be positive")
-        if type(max_length) is not int or max_length <= 0:
-            raise ValueError("max_length must be positive")
         if not device:
             raise ValueError("device must be non-empty")
         self._model = model.to(device).eval()
@@ -108,14 +102,14 @@ class SequenceClassificationRewardModel:
         model = AutoModelForSequenceClassification.from_pretrained(
             config.model_id,
             revision=config.revision,
-            dtype=_torch_dtype(config.dtype),
+            dtype=torch_dtype(config.dtype),
         )
         return cls(
             model,
             tokenizer,
             rm_id=config.model_id,
-            batch_size=int(config.batch_size),
-            max_length=int(config.max_length),
+            batch_size=config.batch_size,
+            max_length=config.max_length,
             device=config.device,
         )
 
@@ -139,14 +133,10 @@ class SequenceClassificationRewardModel:
         if not prompts:
             raise ValueError("reward scoring requires a non-empty batch")
         all_scores: list[t.Tensor] = []
-        for start in range(0, len(prompts), self._batch_size):
+        for pairs in batched(zip(prompts, responses, strict=True), self._batch_size, strict=False):
             rendered = [
                 render_reward_chat(self._tokenizer, prompt, response)
-                for prompt, response in zip(
-                    prompts[start : start + self._batch_size],
-                    responses[start : start + self._batch_size],
-                    strict=True,
-                )
+                for prompt, response in pairs
             ]
             encoded = self._tokenizer(
                 rendered,
@@ -185,10 +175,17 @@ def score_cache_key(
     prompt: str,
     response: str,
 ) -> str:
-    """Compute sha256(rm_id || chat-template-hash || prompt || response)."""
-    return hashlib.sha256(
-        (rm_id + template_hash + prompt + response).encode("utf-8")
-    ).hexdigest()
+    """Injective cache key: sha256 over the four components' fixed-length digests.
+
+    Hashing each component to a fixed 32-byte digest first makes the byte layout
+    injective; plain concatenation collides across field boundaries, e.g.
+    ("ab", "c") vs ("a", "bc").
+    """
+    component_digests = b"".join(
+        hashlib.sha256(component.encode("utf-8")).digest()
+        for component in (rm_id, template_hash, prompt, response)
+    )
+    return hashlib.sha256(component_digests).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,7 +194,7 @@ class ScoreCache:
 
     rm_id: str
     template_hash: str
-    index: dict[str, int]
+    index: Mapping[str, int]
     scores: ScoreBatch
 
     @classmethod
@@ -262,10 +259,17 @@ class ScoreCache:
             for key, value in index.items()
         ):
             raise ValueError("score-cache index must map SHA-256 keys to integer offsets")
+        if len(index) != scores.tensor.shape[0]:
+            raise ValueError("score-cache index must have exactly one key per tensor row")
         expected_indices = set(range(scores.tensor.shape[0]))
         if set(index.values()) != expected_indices:
             raise ValueError("score-cache index must cover every tensor row exactly once")
-        return cls(rm_id=rm_id, template_hash=template_hash, index=index, scores=scores)
+        return cls(
+            rm_id=rm_id,
+            template_hash=template_hash,
+            index=MappingProxyType(index),
+            scores=scores,
+        )
 
     @beartype
     def verify(
