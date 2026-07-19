@@ -51,7 +51,6 @@ addopts = [
     "--strict-markers",
     "-m=not slow",
     "--cov=concentration",
-    "--cov=tests",
     "--cov-report=term-missing",
 ]
 markers = [
@@ -61,7 +60,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["src", "tests"]
+source = ["src"]
 
 [tool.coverage.report]
 show_missing = true
@@ -69,7 +68,6 @@ skip_empty = true
 fail_under = 95
 exclude_lines = [
     "pragma: no cover",
-    "@pytest.mark.slow",
     "if __name__ == .__main__.",
     "if TYPE_CHECKING:",
 ]
