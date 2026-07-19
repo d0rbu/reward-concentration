@@ -8,10 +8,9 @@ from typing import Any, cast
 import torch as t
 from beartype import beartype
 from jaxtyping import Bool, Float, Float32, Int, Int64, jaxtyped
-from torch import nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from concentration.config import ModelConfig, ModelDType, Pooling, RepExtractionConfig
+from concentration.config import ModelConfig, Pooling, RepExtractionConfig, torch_dtype
 from concentration.types import PooledRepresentations
 
 TokenIds = Int64[t.Tensor, "batch tokens"]
@@ -25,7 +24,7 @@ Logits = Float[t.Tensor, "batch tokens vocabulary"]
 class LoadedPolicy:
     """A causal language model and its matching tokenizer."""
 
-    model: nn.Module
+    model: t.nn.Module
     tokenizer: Any
 
 
@@ -45,38 +44,34 @@ class ExtractedPolicyOutput:
     logits: Logits
 
 
-def _torch_dtype(dtype: ModelDType) -> t.dtype:
-    return {ModelDType.FLOAT32: t.float32, ModelDType.BFLOAT16: t.bfloat16}[dtype]
-
-
 @beartype
 def load_policy(config: ModelConfig) -> LoadedPolicy:
     """Load the configured causal LM and tokenizer from their exact revision."""
     tokenizer = AutoTokenizer.from_pretrained(config.model_id, revision=config.revision)
     model = cast(
-        nn.Module,
+        t.nn.Module,
         AutoModelForCausalLM.from_pretrained(
             config.model_id,
             revision=config.revision,
-            dtype=_torch_dtype(config.dtype),
+            dtype=torch_dtype(config.dtype),
         ),
     )
     model.to(config.device)
     return LoadedPolicy(model=model, tokenizer=tokenizer)
 
 
-def _decoder_layers(model: nn.Module) -> nn.ModuleList:
+def _decoder_layers(model: t.nn.Module) -> t.nn.ModuleList:
     if not hasattr(model, "model") or not hasattr(model.model, "layers"):
         raise TypeError("policy must expose Qwen3 decoder blocks as model.layers")
     layers = model.model.layers
-    if not isinstance(layers, nn.ModuleList):
+    if not isinstance(layers, t.nn.ModuleList):
         raise TypeError("policy model.layers must be torch.nn.ModuleList")
     return layers
 
 
 @jaxtyped(typechecker=beartype)
 def forward_at_layer(
-    model: nn.Module,
+    model: t.nn.Module,
     input_ids: TokenIds,
     attention_mask: TokenMask,
     layer: int,
@@ -87,7 +82,7 @@ def forward_at_layer(
         raise ValueError(f"layer must be in [0, {len(layers) - 1}]")
     captured: list[t.Tensor] = []
 
-    def capture_hidden(_module: nn.Module, args: tuple[object, ...]) -> None:
+    def capture_hidden(_module: t.nn.Module, args: tuple[object, ...]) -> None:
         if not args or not isinstance(args[0], t.Tensor):
             raise TypeError("decoder pre-hook did not receive hidden states")
         captured.append(args[0])
@@ -126,7 +121,9 @@ def pool_hidden_states(
     values = hidden_states.float()
     expanded_mask = mask.unsqueeze(-1)
     if pooling is Pooling.MEAN:
-        pooled = (values * expanded_mask).sum(dim=1) / mask.sum(dim=1, keepdim=True)
+        pooled = values.masked_fill(~expanded_mask, 0.0).sum(dim=1) / mask.sum(
+            dim=1, keepdim=True
+        )
     elif pooling is Pooling.LAST:
         positions = t.arange(values.shape[1], device=values.device).expand_as(mask)
         last_indices = positions.masked_fill(~mask, -1).max(dim=1).values
@@ -141,7 +138,7 @@ def pool_hidden_states(
 
 @jaxtyped(typechecker=beartype)
 def extract_policy_output(
-    model: nn.Module,
+    model: t.nn.Module,
     input_ids: TokenIds,
     attention_mask: TokenMask,
     pool_mask: TokenMask,

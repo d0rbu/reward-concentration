@@ -281,3 +281,45 @@ def test_real_qwen3_policy_loads_and_extracts() -> None:
     assert bool(t.isfinite(output.hidden_states).all())
     del output, batch, input_ids, attention_mask, loaded
     gc.collect()
+
+
+@pytest.mark.parametrize("layer", [0, 2])
+@pytest.mark.parametrize("pooling", [Pooling.LAST, Pooling.MAX])
+def test_extract_policy_output_composes_configured_layer_and_pooling(
+    layer: int,
+    pooling: Pooling,
+) -> None:
+    model = tiny_qwen3()
+    input_ids = t.tensor([[1, 2, 3], [4, 5, 6]], dtype=t.int64)
+    attention_mask = t.ones_like(input_ids)
+    pool_mask = t.tensor([[0, 1, 1], [1, 1, 0]], dtype=t.bool)
+    output = extract_policy_output(
+        model,
+        input_ids,
+        attention_mask,
+        pool_mask,
+        RepExtractionConfig(layer=layer, pooling=pooling),
+    )
+    reference = pool_hidden_states(
+        forward_at_layer(model, input_ids, attention_mask, layer).hidden_states,
+        pool_mask,
+        pooling,
+    )
+    assert t.equal(output.representations.tensor, reference.tensor)
+
+
+@pytest.mark.parametrize("pooling", list(Pooling))
+def test_pooling_ignores_nonfinite_values_at_masked_positions(pooling: Pooling) -> None:
+    hidden = t.tensor(
+        [
+            [[float("nan"), float("inf")], [1.0, 4.0], [3.0, 2.0]],
+            [[5.0, 1.0], [2.0, 8.0], [float("-inf"), float("nan")]],
+        ],
+        dtype=t.float32,
+    )
+    mask = t.tensor([[0, 1, 1], [1, 1, 0]])
+    clean = hidden.nan_to_num(nan=100.0, posinf=100.0, neginf=100.0)
+    assert t.equal(
+        pool_hidden_states(hidden, mask, pooling).tensor,
+        pool_hidden_states(clean, mask, pooling).tensor,
+    )
