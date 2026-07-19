@@ -1,81 +1,70 @@
 # Configuration
 
-All tool configuration lives in `pyproject.toml`.
+## Experiment dataclasses
 
-## Package Management
+All project configs are frozen and expose `from_raw` boundary parsers.
 
-Use `uv`.
+| Dataclass | Fields and defaults |
+|---|---|
+| `ModelConfig` | development Qwen3 policy ID, revision `main`, `bfloat16`, device `cuda` |
+| `RewardModelConfig` | default 1.7B Skywork RM ID, revision `main`, `bfloat16`, device `cuda`, batch size 8, max length 2048 |
+| `DataConfig` | exact preference/safety dataset IDs, max length 1024, held-out fractions 0.1/0.1, seed 0 |
+| `RepExtractionConfig` | required non-negative layer and pooling enum; pooling defaults to `mean` |
+| `RewardHeadConfig` | rank 1, ReLU, `linear_probe`, `diffmeans`, trainable |
+| `AdvHeadConfig` | empty hidden-dimension tuple (linear) and ReLU |
+| `LambdaScheduleConfig` | `dann`, `max=1.0`, `warmup_frac=0.1`, `k=10.0` |
+| `KLAnchorConfig` | required reference-model ID and non-negative `gamma` |
+| `ConcentrationTrainConfig` | alpha, lambda schedule, detached basis, seed, learning rates, weight decay, steps, clipping, min-max mode, optional KL bundle |
+| `TrackAConfig` | `ppo` algorithm and seed 0; `grpo` is the other accepted value |
+| `WandbConfig` | `online` mode and project `reward-concentration` |
 
-```bash
-uv sync
-uv add numpy
-uv add --dev pytest
+Accepted enum values are:
+
+- pooling: `mean`, `last`, `max`, `min`;
+- model dtype: `float32`, `bfloat16`;
+- head nonlinearity: `relu`, `sigmoid`;
+- reward-head mode: `linear_probe`, `mlp`;
+- reward-head initialization: `diffmeans`, `probe`;
+- lambda shape: `dann`, `linear`, `constant`, `cosine`;
+- Track A: `ppo`, `grpo`;
+- wandb: `online`, `offline`, `disabled`.
+
+The concentration head/training configs are shared typed contracts only; their training
+implementations are not present in the current package.
+
+## Package management and build
+
+`pyproject.toml` requires Python `>=3.13,<3.14`, enables `tool.uv.package = true`, and builds
+`src/concentration` with Hatchling. Runtime dependencies are:
+
+- `torch`, `transformers`, `datasets`, `accelerate`, `trl`, `peft`;
+- `safetensors`, `lm-eval`, `matplotlib`, `tqdm`, `wandb`;
+- `phantom-types[hypothesis]`, `beartype`, `jaxtyping`.
+
+Use `uv sync --locked` to reproduce `uv.lock`.
+
+## Ruff
+
+Ruff targets Python 3.13 and selects `E`, `F`, `W`, `I`, `UP`, `B`, `C4`, `SIM`, `RET`, and `TID`.
+Line-length diagnostics remain disabled at 100 columns. First-party imports are `concentration` and
+`tests`.
+
+`flake8-tidy-imports` bans `numpy` imports. `tests/*` has a `TID251` exception so NumPy and
+`hypothesis.extra.numpy` can serve as independent references.
+
+## Pytest and coverage
+
+Pytest collects `tests/`, enables strict config and strict markers, and defaults to `not slow`.
+Configured coverage targets are:
+
+```text
+--cov=concentration --cov=tests
 ```
 
-## Linting
+Coverage measures branches from `src` and `tests`, requires 95%, and excludes separately selected
+slow-test function bodies. Markers are `property` and `slow`.
 
-`ruff` is configured for Python 3.13 with common correctness-oriented rule families:
+## Type checking and pre-commit
 
-- `E`, `F`, `W`
-- `I`
-- `UP`
-- `B`
-- `C4`
-- `SIM`
-- `RET`
-
-Run:
-
-```bash
-uv run ruff check .
-```
-
-## Pre-Commit
-
-`pre-commit` uses local hooks that invoke the locked `uv` environment.
-
-Install:
-
-```bash
-uv run pre-commit install
-```
-
-Run:
-
-```bash
-uv run pre-commit run --all-files
-```
-
-Configured hooks:
-
-- `uv lock --check`
-- `uv run ruff check .`
-- `uv run ty check`
-- `uv run pytest`
-
-## Type Checking
-
-`ty` is configured for Python 3.13.
-
-Run:
-
-```bash
-uv run ty check
-```
-
-## Testing
-
-`pytest` collects from `tests/`, runs with strict config and strict markers, and reports
-coverage for the scaffold tests. When the project adds real source modules, update
-`tool.coverage.run.source` and the `--cov` target.
-
-Run:
-
-```bash
-uv run pytest
-```
-
-Markers:
-
-- `property`: property-based tests powered by Hypothesis
-- `slow`: useful but expensive tests excluded from ad hoc focused runs
+`ty` checks Python 3.13 code. Local pre-commit hooks run lockfile validation, Ruff, ty, and the
+default pytest suite. CI invokes the same underlying commands; its workflow semantics are unchanged.
