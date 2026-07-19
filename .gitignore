@@ -16,3 +16,6 @@ logs/
 .env.*
 !.env.example
 .DS_Store
+
+# local design/plan docs — never committed (project rule)
+*.local.md
