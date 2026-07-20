@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any, cast
 
@@ -65,7 +66,12 @@ def _tiny_model() -> Qwen3ForCausalLM:
     )
 
 
-def _tokenized_split(prompt: str, token: int) -> TokenizedPreferenceSplit:
+def _tokenized_split(
+    prompt: str,
+    token: int,
+    *,
+    response_tokens: int = 1,
+) -> TokenizedPreferenceSplit:
     first = f"{prompt}-first"
     second = f"{prompt}-second"
     pair = PreferencePair(
@@ -79,20 +85,25 @@ def _tokenized_split(prompt: str, token: int) -> TokenizedPreferenceSplit:
     responses: list[TokenizedPreferenceResponse] = []
     for offset, text in enumerate((first, second)):
         source = PreferenceResponse(prompt, text, _digest(prompt, text))
+        content = [token + offset + 2 * extra for extra in range(response_tokens)]
         conversation = TokenizedConversation(
-            t.tensor([3, 4, token + offset, 2], dtype=t.int64),
-            t.ones(4, dtype=t.bool),
-            TokenSpan(2, 4),
-            TokenSpan(2, 3),
+            t.tensor([3, 4, *content, 2], dtype=t.int64),
+            t.ones(3 + len(content), dtype=t.bool),
+            TokenSpan(2, 3 + len(content)),
+            TokenSpan(2, 2 + len(content)),
         )
         responses.append(TokenizedPreferenceResponse(source, conversation))
     return TokenizedPreferenceSplit((pair,), tuple(responses), 0, 0)
 
 
 def _tokenized_splits() -> TokenizedPreferenceSplits:
+    """heldout_probe_train has 3 causally scoreable tokens per response; train has 2.
+
+    The asymmetry makes ppl's token_count identify which split was evaluated.
+    """
     return TokenizedPreferenceSplits(
         _tokenized_split("train", 5),
-        _tokenized_split("heldout-train", 7),
+        _tokenized_split("heldout-train", 7, response_tokens=2),
         _tokenized_split("heldout-test", 9),
     )
 
@@ -223,8 +234,14 @@ def test_ppl_cli_evaluates_checkpoint_with_count_cap(
     payload = json.loads(capsys.readouterr().out)
     assert payload["checkpoint"] == "checkpoint"
     assert payload["evaluated_responses"] == 1
-    assert payload["token_count"] == 2
+    assert payload["token_count"] == 3
     assert payload["perplexity"] > 0
+
+    assert main(["ppl", str(config_path), "checkpoint", "--batch-size", "1"]) == 0
+    payload_all = json.loads(capsys.readouterr().out)
+    assert payload_all["evaluated_responses"] == 2
+    assert payload_all["token_count"] == 6
+    assert payload_all["perplexity"] == pytest.approx(math.exp(payload_all["mean_nll"]))
 
 
 def test_ppl_runner_rejects_blank_checkpoint_before_loading() -> None:

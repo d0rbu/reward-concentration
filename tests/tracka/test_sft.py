@@ -3,8 +3,10 @@ from __future__ import annotations
 import gc
 import hashlib
 import json
+import math
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -21,6 +23,7 @@ from transformers import (
     Qwen3ForCausalLM,
 )
 
+import concentration.tracka.sft as sft_module
 from concentration.config import (
     DEV_POLICY_MODEL_ID,
     DataConfig,
@@ -48,13 +51,18 @@ from concentration.tracka.sft import (
     EFFECTIVE_CONFIG_FILENAME,
     IGNORE_INDEX,
     RUN_MANIFEST_FILENAME,
+    TRAIN_LOGS_FILENAME,
     SFTDataCollator,
+    SFTDatasetCounts,
+    SFTResult,
     build_sft_dataset,
     effective_config,
     labels_for_conversation,
     mask_loss_spans,
     train_sft,
+    warmup_steps_for,
 )
+from concentration.types import parse_unit_interval
 
 
 def _digest(prompt: str, response: str) -> str:
@@ -88,18 +96,29 @@ def _tokenized_response(
 
 
 def tokenized_preference_fixture() -> TokenizedPreferenceSplits:
-    shared = _tokenized_response("train-a", "shared", 5)
-    loser = _tokenized_response("train-a", "loser", 6)
-    winner = _tokenized_response("train-a", "winner", 7)
+    """Fixture with pairwise-distinct provenance counts and set-op-distinct labels.
+
+    pairs=5, unique=6, overlong=7, incomplete=8, items=3, duplicates=2, dual=1; the
+    dual-label intersection (1) differs from both set differences (2 and 2), so swapped
+    count fields and swapped set operations both change observable values.
+    """
+    resp_a = _tokenized_response("train-a", "resp-a", 5)
+    resp_b = _tokenized_response("train-a", "resp-b", 6)
+    resp_c = _tokenized_response("train-a", "resp-c", 7)
+    resp_d = _tokenized_response("train-a", "resp-d", 8)
+    resp_e = _tokenized_response("train-a", "resp-e", 9)
+    unpaired = _tokenized_response("train-a", "unpaired", 10)
     train = TokenizedPreferenceSplit(
         pairs=(
-            _pair("train-a", "shared", "loser", 0),
-            _pair("train-a", "shared", "winner", 1),
-            _pair("train-a", "winner", "loser", 0),
+            _pair("train-a", "resp-a", "resp-d", 0),
+            _pair("train-a", "resp-b", "resp-a", 0),
+            _pair("train-a", "resp-c", "resp-e", 0),
+            _pair("train-a", "resp-a", "resp-e", 0),
+            _pair("train-a", "resp-b", "resp-a", 0),
         ),
-        responses=(shared, loser, winner),
-        overlong_responses_removed=0,
-        incomplete_pairs_removed=0,
+        responses=(resp_a, resp_b, resp_c, resp_d, resp_e, unpaired),
+        overlong_responses_removed=7,
+        incomplete_pairs_removed=8,
     )
     heldout_train = TokenizedPreferenceSplit(
         pairs=(_pair("heldout-train", "heldout-better", "heldout-worse", 0),),
@@ -173,23 +192,33 @@ def test_sft_selection_is_preferred_existential_deduplicated_and_train_only() ->
     splits = tokenized_preference_fixture()
     dataset = build_sft_dataset(splits)
     assert [(item.source.prompt, item.source.response) for item in dataset.items] == [
-        ("train-a", "shared"),
-        ("train-a", "winner"),
+        ("train-a", "resp-a"),
+        ("train-a", "resp-b"),
+        ("train-a", "resp-c"),
     ]
-    assert dataset.counts.train_pairs == 3
-    assert dataset.counts.train_unique_responses == 3
-    assert dataset.counts.train_overlong_responses_removed == 0
-    assert dataset.counts.train_incomplete_pairs_removed == 0
-    assert dataset.counts.sft_items == 2
-    assert dataset.counts.duplicate_preferred_selections_removed == 1
-    assert dataset.counts.dual_labeled_sft_items == 1
+    assert dataset.counts == SFTDatasetCounts(
+        train_pairs=5,
+        train_unique_responses=6,
+        train_overlong_responses_removed=7,
+        train_incomplete_pairs_removed=8,
+        sft_items=3,
+        duplicate_preferred_selections_removed=2,
+        dual_labeled_sft_items=1,
+    )
     heldout_prompts = {
         response.source.prompt
         for split in (splits.heldout_probe_train, splits.heldout_probe_test)
         for response in split.responses
     }
     assert {item.source.prompt for item in dataset.items}.isdisjoint(heldout_prompts)
-    assert dataset.to_huggingface().column_names == ["input_ids", "labels"]
+    materialized = dataset.to_huggingface()
+    assert materialized.column_names == ["input_ids", "labels"]
+    assert materialized["input_ids"] == [[3, 4, 5, 2], [3, 4, 6, 2], [3, 4, 7, 2]]
+    assert materialized["labels"] == [
+        [-100, -100, 5, 2],
+        [-100, -100, 6, 2],
+        [-100, -100, 7, 2],
+    ]
 
 
 def test_sft_selection_rejects_broken_pair_response_contracts() -> None:
@@ -207,6 +236,23 @@ def test_sft_selection_rejects_broken_pair_response_contracts() -> None:
                     responses=(
                         overlapping_response,
                         *splits.heldout_probe_train.responses[1:],
+                    ),
+                ),
+            )
+        )
+    overlapping_test_response = replace(
+        splits.heldout_probe_test.responses[0],
+        source=replace(splits.heldout_probe_test.responses[0].source, prompt="train-a"),
+    )
+    with pytest.raises(ValueError, match="disjoint"):
+        build_sft_dataset(
+            replace(
+                splits,
+                heldout_probe_test=replace(
+                    splits.heldout_probe_test,
+                    responses=(
+                        overlapping_test_response,
+                        *splits.heldout_probe_test.responses[1:],
                     ),
                 ),
             )
@@ -263,7 +309,8 @@ def test_loss_span_masking_matches_loop_reference_for_both_padding_sides(
         input_ids[row, :valid_start] = 0
         input_ids[row, valid_stop:] = 0
         loss_start = valid_start + length // 2
-        span = TokenSpan(loss_start, valid_stop)
+        loss_stop = min(valid_stop, loss_start + 1 + length // 3)
+        span = TokenSpan(loss_start, loss_stop)
         spans.append(span)
         for position in range(width):
             if attention_mask[row, position] and span.start <= position < span.stop:
@@ -334,6 +381,12 @@ def test_collator_rejects_invalid_features_and_pad_id() -> None:
         collator([{"input_ids": [1, 2], "labels": [-100, 1]}])
     with pytest.raises(ValueError, match="loss token"):
         collator([{"input_ids": [1, 2], "labels": [-100, -100]}])
+    with pytest.raises(ValueError, match="causally scoreable"):
+        collator([{"input_ids": [1, 2], "labels": [1, -100]}])
+    with pytest.raises(ValueError, match="rank-1"):
+        collator([{"input_ids": [[1, 2]], "labels": [[1, 2]]}])
+    with pytest.raises(ValueError, match="rank-1"):
+        collator([{"input_ids": t.empty(0, dtype=t.int64), "labels": t.empty(0, dtype=t.int64)}])
 
 
 def test_tiny_cpu_sft_decreases_loss_and_saves_exact_reload(tmp_path: Path) -> None:
@@ -346,15 +399,44 @@ def test_tiny_cpu_sft_decreases_loss_and_saves_exact_reload(tmp_path: Path) -> N
     assert len(result.loss_history) == 20
     assert result.loss_history[-1] < result.loss_history[0]
     assert result.final_metrics["train_loss"] > 0
-    assert result.dataset_counts.sft_items == 2
+    assert result.dataset_counts.sft_items == 3
 
     manifest = json.loads((output_dir / RUN_MANIFEST_FILENAME).read_text())
+    assert set(manifest) == {
+        "schema_version",
+        "trl_version",
+        "config",
+        "dataset_counts",
+        "final_metrics",
+        "loss_history",
+    }
     assert manifest["schema_version"] == 1
     assert manifest["trl_version"] == "1.8.0"
+    assert manifest["config"]["max_steps"] == 20
+    assert manifest["config"]["seed"] == 17
+    assert manifest["config"]["policy"]["model_id"] == "tiny-qwen"
     assert manifest["config"] == effective_config(config)
-    assert manifest["dataset_counts"]["sft_items"] == 2
+    assert manifest["dataset_counts"] == {
+        "train_pairs": 5,
+        "train_unique_responses": 6,
+        "train_overlong_responses_removed": 7,
+        "train_incomplete_pairs_removed": 8,
+        "sft_items": 3,
+        "duplicate_preferred_selections_removed": 2,
+        "dual_labeled_sft_items": 1,
+    }
+    assert math.isfinite(manifest["final_metrics"]["train_loss"])
     assert manifest["loss_history"] == list(result.loss_history)
     assert json.loads((output_dir / EFFECTIVE_CONFIG_FILENAME).read_text()) == effective_config(config)
+
+    log_records = [
+        json.loads(line)
+        for line in (output_dir / TRAIN_LOGS_FILENAME).read_text().splitlines()
+    ]
+    assert [record["loss"] for record in log_records if "loss" in record] == list(
+        result.loss_history
+    )
+    assert any("train_loss" in record for record in log_records)
 
     reloaded = AutoModelForCausalLM.from_pretrained(output_dir)
     for name, value in model.state_dict().items():
@@ -400,6 +482,92 @@ def test_same_seed_produces_identical_first_step_loss(tmp_path: Path) -> None:
         )
         first_losses.append(result.loss_history[0])
     assert first_losses[0] == first_losses[1]
+
+
+def test_warmup_steps_mapping_is_exact_and_integer(tmp_path: Path) -> None:
+    def config_for(max_steps: int, warmup_frac: float) -> SFTTrainConfig:
+        return replace(
+            tiny_sft_config(tmp_path / "unused", max_steps=max_steps),
+            warmup_frac=parse_unit_interval(warmup_frac),
+        )
+
+    assert warmup_steps_for(config_for(1000, 0.1)) == 100
+    assert warmup_steps_for(config_for(1000, 0.999)) == 999
+    assert warmup_steps_for(config_for(1000, 1.0)) == 1000
+    assert warmup_steps_for(config_for(20, 0.0)) == 0
+    assert warmup_steps_for(config_for(3, 0.5)) == 2
+
+
+def test_train_sft_seeds_before_any_training_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    dummy = SFTResult(
+        output_dir=tmp_path,
+        dataset_counts=SFTDatasetCounts(0, 0, 0, 0, 0, 0, 0),
+        final_metrics={},
+        loss_history=(1.0,),
+    )
+    monkeypatch.setattr(
+        sft_module, "seed_all", lambda seed: calls.append(f"seed_all:{int(seed)}")
+    )
+
+    def fake_train(*_args: object) -> SFTResult:
+        calls.append("_train_sft")
+        return dummy
+
+    monkeypatch.setattr(sft_module, "_train_sft", fake_train)
+    train_sft(
+        tiny_sft_config(tmp_path / "seed-order"),
+        tiny_qwen3(),
+        tiny_tokenizer(),
+        tokenized_preference_fixture(),
+    )
+    assert calls == ["seed_all:17", "_train_sft"]
+
+
+def test_sft_crashes_on_nonfinite_loss_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class NanTrainer:
+        def __init__(self, **_kwargs: object) -> None:
+            self.state = SimpleNamespace(log_history=[{"loss": float("nan")}])
+            self.model = None
+            self.accelerator = SimpleNamespace(unwrap_model=lambda model: model)
+
+        def train(self) -> SimpleNamespace:
+            return SimpleNamespace(metrics={"train_loss": float("nan")})
+
+    monkeypatch.setattr(sft_module, "SFTTrainer", NanTrainer)
+    with pytest.raises(FloatingPointError, match="finite"):
+        train_sft(
+            tiny_sft_config(tmp_path / "nan-run", max_steps=1),
+            tiny_qwen3(),
+            tiny_tokenizer(),
+            tokenized_preference_fixture(),
+        )
+
+
+def test_train_rejects_tokenizer_without_pad_token(tmp_path: Path) -> None:
+    vocabulary = {
+        "[UNK]": 1,
+        "[EOS]": 2,
+        **{f"token-{index}": index for index in range(3, 20)},
+    }
+    padless = PreTrainedTokenizerFast(
+        tokenizer_object=Tokenizer(WordLevel(vocabulary, unk_token="[UNK]")),
+        eos_token="[EOS]",
+        unk_token="[UNK]",
+    )
+    with pytest.raises(ValueError, match="pad_token_id"):
+        train_sft(
+            tiny_sft_config(tmp_path / "no-pad", max_steps=1),
+            tiny_qwen3(),
+            padless,
+            tokenized_preference_fixture(),
+        )
 
 
 def _one_pair_subset(split: PreferenceSplit) -> PreferenceSplit:
