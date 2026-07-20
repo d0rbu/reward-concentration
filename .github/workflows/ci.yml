@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "17 6 * * 1"
 
 jobs:
   checks:
@@ -22,4 +24,23 @@ jobs:
       - name: Ty
         run: uv run ty check
       - name: Pytest
+        run: uv run pytest
+
+  # Weekly randomized-hypothesis pass: the PR gate is derandomized for reproducibility,
+  # so fresh property-test counterexamples can only surface here.
+  randomized-property-tests:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Python
+        run: uv python install 3.13
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Pytest (randomized Hypothesis)
+        env:
+          CI: "false"
         run: uv run pytest

@@ -4,7 +4,7 @@
 
 - Python 3.13
 - `uv`
-- a CUDA-capable GPU for later experiment workloads (the live smoke tests themselves run on CPU)
+- a CUDA-capable GPU for later experiment workloads (live smokes run on CPU; the SFT smoke uses CUDA when visible)
 
 Install `uv` if needed:
 
@@ -38,7 +38,8 @@ Run live Hugging Face integrations explicitly:
 uv run pytest -m slow
 ```
 
-Run safety-SFT from a TOML config, then smoke-test its held-out response perplexity:
+Author a TOML config first (schema in `docs/reference/configuration.md`), e.g. `configs/sft.toml`,
+then run safety-SFT and smoke-test its held-out response perplexity:
 
 ```bash
 uv run concentration sft configs/sft.toml

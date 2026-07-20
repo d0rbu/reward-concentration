@@ -65,6 +65,9 @@ mode = "online"
 project = "reward-concentration"
 ```
 
+The `[data]` table also accepts `preference_dataset_id` and `safety_eval_dataset_id`. `warmup_frac`
+maps to `ceil(max_steps x warmup_frac)` integer warmup steps.
+
 `uv run concentration sft <config.toml>` writes the fully defaulted configuration as JSON before
 training. `uv run concentration ppl <config.toml> <checkpoint> [--count N] [--batch-size N]` uses
 the policy dtype/device and data split settings from the same config.

@@ -42,7 +42,7 @@
 5. Run `uv run concentration ppl <config.toml> <checkpoint> --count 16` for a bounded
    `heldout_probe_train` smoke metric.
 
-SFT always rebuilds the Phase 1 prompt-disjoint splits and offset-derived spans. It does not accept
+SFT always rebuilds the prompt-disjoint splits and offset-derived spans. It does not accept
 an alternate text dataset or a second string-matching mask path.
 
 ## Before handoff

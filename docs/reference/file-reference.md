@@ -85,4 +85,4 @@
 
 | File | Purpose |
 |---|---|
-| `.github/workflows/ci.yml` | Runs Ruff, ty, and the default offline pytest suite on pull requests and pushes to main |
+| `.github/workflows/ci.yml` | Runs Ruff, ty, and the default offline pytest suite on pull requests and pushes to main, plus a weekly randomized-Hypothesis pass |
