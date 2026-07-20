@@ -19,6 +19,8 @@
 | File | Purpose |
 |---|---|
 | `src/concentration/__init__.py` | Package marker and summary |
+| `src/concentration/__main__.py` | `python -m concentration` CLI entry point |
+| `src/concentration/cli.py` | Strict TOML parsing plus `sft` and held-out `ppl` command dispatch |
 | `src/concentration/types.py` | Phantom scalars, parsers, tensor aliases, and validating smart constructors |
 | `src/concentration/config.py` | Frozen configs, enums, defaults, and boundary parsing |
 | `src/concentration/seeding.py` | Python, torch CPU/CUDA, and Transformers seeding |
@@ -31,7 +33,10 @@
 | `src/concentration/models/policy.py` | Causal-LM loading, exact layer hook, and four pooling modes |
 | `src/concentration/models/reward_model.py` | Reward protocol, sequence-classification adapter, raw-score cache, and diagnostics |
 | `src/concentration/eval/__init__.py` | Evaluation-package marker |
+| `src/concentration/eval/capability.py` | Masked fp32 held-out response NLL and perplexity |
 | `src/concentration/eval/stats.py` | Torch-only confidence interval, Welch t, R-squared, and AUC |
+| `src/concentration/tracka/__init__.py` | Track-A package marker |
+| `src/concentration/tracka/sft.py` | Preferred-item derivation, span labels, right-padding collator, TRL SFT run, checkpoint manifest |
 
 ## Tests
 
@@ -42,6 +47,7 @@
 | `tests/test_correctness_tools.py` | Torch scaffold examples for phantom, runtime, tensor, and property checks |
 | `tests/test_types.py` | Scalar parser and tensor-wrapper unit/property tests |
 | `tests/test_config.py` | Frozen dataclass, enum, parser, and all-or-nothing bundle tests |
+| `tests/test_cli.py` | TOML schema, CLI dispatch, tiny SFT, and capped perplexity command tests |
 | `tests/test_seeding.py` | Cross-backend seed and reproducibility tests |
 | `tests/test_run_logging.py` | JSONL/wandb routing and invalid-record tests |
 | `tests/test_benchmark_runner.py` | Benchmark timing, validation, and JSON serialization tests |
@@ -50,6 +56,8 @@
 | `tests/models/test_policy.py` | Tiny-Qwen exact hook and pooling tests plus live development-policy check |
 | `tests/models/test_reward_model.py` | Tiny reward scoring/cache tests plus live Skywork check |
 | `tests/eval/test_stats.py` | Hand, loop, NumPy, and property references for statistics |
+| `tests/eval/test_capability.py` | Hand-loop and property references for masked response perplexity |
+| `tests/tracka/test_sft.py` | SFT selection/masking/collation, tiny deterministic training, artifacts, and live-model smoke |
 
 ## Benchmarks
 

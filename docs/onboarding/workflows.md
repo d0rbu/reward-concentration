@@ -33,6 +33,18 @@
 3. Record the measured environment and write a new JSON file under `bench/baselines/`.
 4. Commit the baseline before using it to justify an optimization.
 
+## Run safety-SFT
+
+1. Define `[policy]`, `[data]`, `[sft]`, and `[wandb]` tables in a TOML file.
+2. Keep `max_steps` as the sole training-length representation; `epochs` is not accepted.
+3. Run `uv run concentration sft <config.toml>` against a new or empty output directory.
+4. Inspect `effective-config.json` and `run-manifest.json` beside the saved model and tokenizer.
+5. Run `uv run concentration ppl <config.toml> <checkpoint> --count 16` for a bounded
+   `heldout_probe_train` smoke metric.
+
+SFT always rebuilds the Phase 1 prompt-disjoint splits and offset-derived spans. It does not accept
+an alternate text dataset or a second string-matching mask path.
+
 ## Before handoff
 
 ```bash

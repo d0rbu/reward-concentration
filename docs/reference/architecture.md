@@ -5,18 +5,22 @@ surfaces.
 
 ```text
 src/concentration/
+├── cli.py
 ├── benchmark.py
 ├── config.py
 ├── data/
 │   ├── preference.py
 │   └── safety_eval.py
 ├── eval/
+│   ├── capability.py
 │   └── stats.py
 ├── models/
 │   ├── policy.py
 │   └── reward_model.py
 ├── run_logging.py
 ├── seeding.py
+├── tracka/
+│   └── sft.py
 └── types.py
 ```
 
@@ -72,6 +76,48 @@ contains assistant content only. Qwen3 rendering always passes `enable_thinking=
 | `prompt` | `string` | non-blank |
 | `category` | `string` | non-blank |
 | `category_id` | `int64` | integer in `[0, 13]` |
+
+## Safety-SFT
+
+`tracka/sft.py` consumes the complete Phase 1 preference pipeline and never reloads or retokenizes
+raw text inside TRL. Only kept pairs in the project `train` split are considered. Each pair selects
+its `better_response_id`, and those selections are deduplicated by `(prompt, response)`. Selection
+is existential: a response preferred in one comparison remains an SFT item even when another
+comparison labels the same key dispreferred. The source corpus has 579 such dual-labeled keys;
+deciding how they enter reward-direction fitting is deliberately deferred to Phase 3.
+
+For the default seed-0 splits and Qwen3 tokenizer observed on 2026-07-19, length filtering removes
+6 overlong train responses and 6 incomplete train pairs, leaving 65,072 complete pairs and 126,067
+unique responses. Preferred selection yields 63,247 SFT items after removing 1,825 repeated
+preferred selections; 469 selected train keys are dual-labeled. Held-out prompts cannot enter this
+derivation.
+
+Every item carries Phase 1 `input_ids` and labels copied from `input_ids` only inside `loss_span`.
+Prompt positions and all padding positions are `-100`; the loss span includes the assistant
+end-of-turn token and trailing template text. A custom collator right-pads with the tokenizer's real
+pad token ID, emits its attention mask, and pads labels with `-100`.
+
+The installed TRL 1.8.0 path is `SFTTrainer` with a pretokenized `datasets.Dataset` containing
+`input_ids` and `labels`, `dataset_kwargs={"skip_prepare_dataset": True}`, no packing, and no TRL
+completion/string masking. `seed_all` runs before dataset derivation and trainer construction.
+
+An SFT run refuses a non-empty output directory. The configured directory is the complete
+checkpoint:
+
+```text
+<output_dir>/
+├── config.json and model.safetensors  model `save_pretrained` output
+├── tokenizer.json and tokenizer_config.json  tokenizer `save_pretrained` output
+├── effective-config.json             fully defaulted project config
+└── run-manifest.json                 config echo, data counts, loss history, final metrics, TRL version
+```
+
+## Capability smoke metric
+
+`eval/capability.py` computes fp32, response-token-mean causal NLL and its exact exponential from
+pre-masked Phase 1 labels. It shifts labels once, excludes `-100`, and performs exactly one policy
+forward per input batch. The `ppl` command aggregates token sums across batches over
+`heldout_probe_train`; `--count` caps responses for smoke runs.
 
 ## Policy extraction
 

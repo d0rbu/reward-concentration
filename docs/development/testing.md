@@ -24,8 +24,9 @@ uv run pytest -m slow
 
 This command disables the fast coverage gate and verifies the real external contracts: both
 datasets, the Qwen3 tokenizer and development policy, and the development Skywork reward model. It
-requires network access and can download model weights. The smoke inputs run on CPU so the contract
-does not depend on GPU visibility; experiment workloads may use CUDA.
+also runs a few-step safety-SFT save/reload check and held-out response-perplexity smoke. It requires
+network access and can download model weights. SFT uses CUDA when visible and otherwise exercises
+the same path on CPU; the remaining model contract smokes run on CPU.
 
 ## Pre-commit gate
 
@@ -45,6 +46,7 @@ The hooks run:
 ```bash
 uv run pytest tests/models/test_policy.py
 uv run pytest tests/data/test_preference.py -k span
+uv run pytest tests/tracka/test_sft.py -m "not slow"
 uv run pytest -m property
 ```
 

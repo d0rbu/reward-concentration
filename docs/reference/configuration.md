@@ -17,6 +17,7 @@ All project configs are frozen and expose `from_raw` boundary parsers.
 | `ConcentrationTrainConfig` | alpha, lambda schedule, detached basis, seed, learning rates, weight decay, steps, clipping, optional alternating min-max bundle (`AlternatingMinmaxConfig` with required adversary steps), optional KL bundle |
 | `TrackAConfig` | `ppo` algorithm and seed 0; `grpo` is the other accepted value |
 | `WandbConfig` | `online` mode and project `reward-concentration` |
+| `SFTTrainConfig` | policy and data configs, seed 0, learning rate 2e-5, per-device batch size 1, gradient accumulation 8, max steps 1000, warmup fraction 0.1, output `outputs/safety-sft`, and wandb config |
 
 Accepted enum values are:
 
@@ -31,6 +32,42 @@ Accepted enum values are:
 
 The concentration head/training configs are shared typed contracts only; their training
 implementations are not present in the current package.
+
+## Safety-SFT TOML
+
+The CLI accepts exactly four optional tables and rejects unknown table or field names. Training
+length has one representation, `max_steps`; an `epochs` field is invalid.
+
+```toml
+[policy]
+model_id = "Qwen/Qwen3-0.6B-Base"
+revision = "main"
+dtype = "bfloat16"
+device = "cuda"
+
+[data]
+max_len = 1024
+heldout_probe_train_frac = 0.1
+heldout_probe_test_frac = 0.1
+seed = 0
+
+[sft]
+seed = 0
+learning_rate = 2e-5
+per_device_batch_size = 1
+gradient_accumulation_steps = 8
+max_steps = 1000
+warmup_frac = 0.1
+output_dir = "outputs/safety-sft"
+
+[wandb]
+mode = "online"
+project = "reward-concentration"
+```
+
+`uv run concentration sft <config.toml>` writes the fully defaulted configuration as JSON before
+training. `uv run concentration ppl <config.toml> <checkpoint> [--count N] [--batch-size N]` uses
+the policy dtype/device and data split settings from the same config.
 
 ## Package management and build
 

@@ -38,5 +38,15 @@ Run live Hugging Face integrations explicitly:
 uv run pytest -m slow
 ```
 
+Run safety-SFT from a TOML config, then smoke-test its held-out response perplexity:
+
+```bash
+uv run concentration sft configs/sft.toml
+uv run concentration ppl configs/sft.toml outputs/safety-sft --count 16 --batch-size 4
+```
+
+The SFT command refuses to start when its output directory is already non-empty. Generated
+checkpoints and run artifacts belong under ignored output paths, not in git.
+
 Use `uv add <package>` for runtime dependencies and `uv add --dev <package>` for development-only
 tooling, then commit the updated `uv.lock` with the dependency change.

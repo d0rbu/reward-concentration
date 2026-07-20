@@ -3,7 +3,8 @@
 Correctness-first infrastructure for research on preference representation concentration in
 language models. The current package establishes the shared data, model, caching, statistics,
 configuration, seeding, logging, and benchmark boundaries needed by later experiments; it does
-not yet implement concentration training or report research results.
+not yet implement concentration training or report research results. It now produces the
+safety-SFT checkpoint that later concentration experiments start from.
 
 ## Current scope
 
@@ -15,6 +16,8 @@ not yet implement concentration training or report research results.
 - frozen Skywork sequence-classification reward scoring and verified raw-score caches
 - torch-only confidence intervals, Welch t tests, R-squared, and binary AUC
 - deterministic seeding plus JSONL-always and optional Weights & Biases logging
+- TRL safety-SFT on train-split preferred responses with exact response-token loss masking
+- held-out response token-mean NLL and perplexity for before/after SFT smoke evaluation
 - a benchmark runner and an intentionally empty measured-baseline directory
 
 Raw reward-model logits are preserved exactly. Score means and standard deviations are diagnostics
