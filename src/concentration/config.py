@@ -526,3 +526,72 @@ class WandbConfig:
         project: str = "reward-concentration",
     ) -> WandbConfig:
         return cls(mode=WandbMode(mode), project=project)
+
+
+@dataclass(frozen=True, slots=True)
+class SFTTrainConfig:
+    """Safety-SFT model, data, optimization, output, and logging configuration."""
+
+    policy: ModelConfig = field(default_factory=ModelConfig)
+    data: DataConfig = field(default_factory=DataConfig)
+    seed: Seed = field(default_factory=lambda: parse_seed(0))
+    learning_rate: NonNegativeFloat = field(
+        default_factory=lambda: parse_non_negative_float(2.0e-5)
+    )
+    per_device_batch_size: Rank = field(default_factory=lambda: parse_rank(1))
+    gradient_accumulation_steps: Rank = field(default_factory=lambda: parse_rank(8))
+    max_steps: Rank = field(default_factory=lambda: parse_rank(1000))
+    warmup_frac: UnitInterval = field(default_factory=lambda: parse_unit_interval(0.1))
+    output_dir: str = "outputs/safety-sft"
+    wandb: WandbConfig = field(default_factory=WandbConfig)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.policy, ModelConfig):
+            raise TypeError("policy must be ModelConfig")
+        if not isinstance(self.data, DataConfig):
+            raise TypeError("data must be DataConfig")
+        _require_phantom(self.seed, Seed, "seed")
+        _require_phantom(self.learning_rate, NonNegativeFloat, "learning_rate")
+        if self.learning_rate <= 0.0:
+            raise ValueError("learning_rate must be positive")
+        _require_phantom(self.per_device_batch_size, Rank, "per_device_batch_size")
+        _require_phantom(
+            self.gradient_accumulation_steps,
+            Rank,
+            "gradient_accumulation_steps",
+        )
+        _require_phantom(self.max_steps, Rank, "max_steps")
+        _require_phantom(self.warmup_frac, UnitInterval, "warmup_frac")
+        _require_nonempty(self.output_dir, "output_dir")
+        if not isinstance(self.wandb, WandbConfig):
+            raise TypeError("wandb must be WandbConfig")
+
+    @classmethod
+    @beartype
+    def from_raw(
+        cls,
+        *,
+        policy: ModelConfig | None = None,
+        data: DataConfig | None = None,
+        seed: int | str = 0,
+        learning_rate: float | int | str = 2.0e-5,
+        per_device_batch_size: int | str = 1,
+        gradient_accumulation_steps: int | str = 8,
+        max_steps: int | str = 1000,
+        warmup_frac: float | int | str = 0.1,
+        output_dir: str = "outputs/safety-sft",
+        wandb: WandbConfig | None = None,
+    ) -> SFTTrainConfig:
+        """Refine raw SFT values; training length is represented only by ``max_steps``."""
+        return cls(
+            policy=policy if policy is not None else ModelConfig(),
+            data=data if data is not None else DataConfig(),
+            seed=parse_seed(seed),
+            learning_rate=parse_non_negative_float(learning_rate),
+            per_device_batch_size=parse_rank(per_device_batch_size),
+            gradient_accumulation_steps=parse_rank(gradient_accumulation_steps),
+            max_steps=parse_rank(max_steps),
+            warmup_frac=parse_unit_interval(warmup_frac),
+            output_dir=output_dir,
+            wandb=wandb if wandb is not None else WandbConfig(),
+        )
