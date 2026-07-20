@@ -8,10 +8,11 @@ import torch as t
 from beartype import beartype
 from jaxtyping import Bool, Float32, Int, Int64, jaxtyped
 
+from concentration.types import IGNORE_INDEX
+
 BatchTokenIds = Int64[t.Tensor, "batch tokens"]
 BatchTokenMask = Bool[t.Tensor, "batch tokens"] | Int[t.Tensor, "batch tokens"]
 ScalarFloat32 = Float32[t.Tensor, ""]
-IGNORE_INDEX = -100
 
 
 @dataclass(frozen=True, slots=True)

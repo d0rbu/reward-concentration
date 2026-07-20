@@ -1,4 +1,4 @@
-"""Safety-SFT data derivation and TRL training over Phase 1 chat spans."""
+"""Safety-SFT data derivation and TRL training over offset-derived chat spans."""
 
 from __future__ import annotations
 
@@ -28,13 +28,32 @@ from concentration.data.preference import (
 )
 from concentration.models.policy import load_policy
 from concentration.seeding import seed_all
+from concentration.types import IGNORE_INDEX
 
 BatchTokenIds = Int64[t.Tensor, "batch tokens"]
 BatchTokenMask = Bool[t.Tensor, "batch tokens"] | Int[t.Tensor, "batch tokens"]
 TokenLabels = Int64[t.Tensor, "tokens"]
-IGNORE_INDEX = -100
 EFFECTIVE_CONFIG_FILENAME = "effective-config.json"
 RUN_MANIFEST_FILENAME = "run-manifest.json"
+TRAIN_LOGS_FILENAME = "train-logs.jsonl"
+
+
+@beartype
+def require_pad_token_id(value: object) -> int:
+    """Refine a tokenizer's pad token id; padding with a fake or missing id corrupts batches."""
+    if type(value) is not int or value < 0:
+        raise ValueError("pad_token_id must be a non-negative integer")
+    return value
+
+
+@beartype
+def warmup_steps_for(config: SFTTrainConfig) -> int:
+    """Integer warmup steps: ceil(max_steps x warmup_frac).
+
+    Passing the fraction itself to transformers is version-dependent (floats >= 1 are
+    absolute steps, and 4.x ignores fractions entirely), so the mapping is explicit.
+    """
+    return math.ceil(int(config.max_steps) * float(config.warmup_frac))
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +141,7 @@ def mask_loss_spans(
 
 @beartype
 def labels_for_conversation(conversation: TokenizedConversation) -> TokenLabels:
-    """Construct exact Phase 1 span labels for one unbatched conversation."""
+    """Construct exact loss-span labels for one unbatched conversation."""
     return mask_loss_spans(
         conversation.input_ids.unsqueeze(0),
         conversation.attention_mask.unsqueeze(0),
@@ -136,8 +155,8 @@ def build_sft_dataset(splits: TokenizedPreferenceSplits) -> SFTDataset:
 
     Selection is existential: a response preferred in any kept pair is an SFT item even if
     another pair labels that same key as dispreferred. The source corpus has 579 such
-    dual-labeled keys. Resolving labels for reward-direction fitting is deliberately deferred
-    to Phase 3; SFT only asks whether a response was ever selected as the better response.
+    dual-labeled keys. Resolving labels for later reward-direction fitting is deliberately
+    deferred; SFT only asks whether a response was ever selected as the better response.
     """
     train = splits.train
     train_prompts = {response.source.prompt for response in train.responses}
@@ -209,8 +228,7 @@ class SFTDataCollator:
     pad_token_id: int
 
     def __post_init__(self) -> None:
-        if type(self.pad_token_id) is not int or self.pad_token_id < 0:
-            raise ValueError("pad_token_id must be a non-negative integer")
+        require_pad_token_id(self.pad_token_id)
 
     @beartype
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, t.Tensor]:
@@ -229,6 +247,8 @@ class SFTDataCollator:
             raise ValueError("unmasked labels must equal input_ids")
         if any(not bool(item_labels.ne(IGNORE_INDEX).any()) for item_labels in labels):
             raise ValueError("every SFT item must contain at least one loss token")
+        if any(not bool(item_labels[1:].ne(IGNORE_INDEX).any()) for item_labels in labels):
+            raise ValueError("every SFT item must contain a causally scoreable loss token")
         lengths = t.tensor([ids.shape[0] for ids in input_ids], dtype=t.int64)
         padded_ids = t.nn.utils.rnn.pad_sequence(
             input_ids,
@@ -283,9 +303,7 @@ def _train_sft(
     output_dir = Path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_json(output_dir / EFFECTIVE_CONFIG_FILENAME, effective_config(config))
-    pad_token_id = tokenizer.pad_token_id
-    if type(pad_token_id) is not int or pad_token_id < 0:
-        raise ValueError("the policy tokenizer must define a real non-negative pad_token_id")
+    pad_token_id = require_pad_token_id(tokenizer.pad_token_id)
 
     selected = build_sft_dataset(splits)
     trainer_config = SFTConfig(
@@ -294,7 +312,7 @@ def _train_sft(
         gradient_accumulation_steps=int(config.gradient_accumulation_steps),
         max_steps=int(config.max_steps),
         learning_rate=float(config.learning_rate),
-        warmup_steps=float(config.warmup_frac),
+        warmup_steps=warmup_steps_for(config),
         optim="adamw_torch",
         logging_strategy="steps",
         logging_steps=1,
@@ -340,6 +358,10 @@ def _train_sft(
     if not isinstance(train_loss, int | float) or not math.isfinite(train_loss):
         raise FloatingPointError("SFT final train_loss must be finite")
 
+    with (output_dir / TRAIN_LOGS_FILENAME).open("x", encoding="utf-8") as stream:
+        for record in trainer.state.log_history:
+            stream.write(json.dumps(record, sort_keys=True, allow_nan=False) + "\n")
+
     saved_model = trainer.accelerator.unwrap_model(trainer.model)
     saved_model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
@@ -367,7 +389,7 @@ def train_sft(
     tokenizer: Any,
     splits: TokenizedPreferenceSplits,
 ) -> SFTResult:
-    """Train from injected Phase 1 components, primarily for deterministic integration tests."""
+    """Train from injected pipeline components, primarily for deterministic integration tests."""
     output_dir = Path(config.output_dir)
     _require_available_output_dir(output_dir)
     seed_all(config.seed)

@@ -27,10 +27,14 @@ from concentration.data.preference import (
 from concentration.eval.capability import heldout_response_perplexity
 from concentration.models.policy import load_policy
 from concentration.seeding import seed_all
-from concentration.tracka.sft import SFTDataCollator, labels_for_conversation, run_sft
+from concentration.tracka.sft import (
+    SFTDataCollator,
+    labels_for_conversation,
+    require_pad_token_id,
+    run_sft,
+)
 from concentration.types import Rank, parse_rank
 
-TOP_LEVEL_KEYS = frozenset({"policy", "data", "sft", "wandb"})
 SECTION_KEYS = {
     "policy": frozenset({"model_id", "revision", "dtype", "device"}),
     "data": frozenset(
@@ -56,6 +60,7 @@ SECTION_KEYS = {
     ),
     "wandb": frozenset({"mode", "project"}),
 }
+TOP_LEVEL_KEYS = frozenset(SECTION_KEYS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,12 +132,7 @@ def run_ppl(
     tokenized = tokenize_preference_splits(splits, loaded.tokenizer, config.data)
     heldout = tokenized.heldout_probe_train.responses
     selected = heldout if count is None else heldout[: int(count)]
-    if not selected:
-        raise ValueError("heldout perplexity selection is empty")
-    pad_token_id = loaded.tokenizer.pad_token_id
-    if type(pad_token_id) is not int or pad_token_id < 0:
-        raise ValueError("the policy tokenizer must define a real non-negative pad_token_id")
-    collator = SFTDataCollator(pad_token_id)
+    collator = SFTDataCollator(require_pad_token_id(loaded.tokenizer.pad_token_id))
     nll_sum = t.zeros((), dtype=t.float32)
     token_count = 0
     for start in range(0, len(selected), int(batch_size)):
