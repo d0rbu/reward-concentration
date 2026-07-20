@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from fractions import Fraction
 
 import torch as t
 from beartype import beartype
@@ -82,12 +83,27 @@ def mean_confidence_interval(
     )
 
 
+def _exact_variance_term(values: t.Tensor) -> Fraction:
+    """Unbiased sample variance over sample size, in exact rational arithmetic.
+
+    Float inputs convert to Fractions exactly, so the Welch-Satterthwaite df and its
+    floor are mathematically exact — float rounding cannot cross an integer boundary.
+    """
+    fractions = [Fraction(value) for value in values.tolist()]
+    size = len(fractions)
+    mean = sum(fractions, start=Fraction(0)) / size
+    squared_deviations = sum(
+        ((value - mean) ** 2 for value in fractions), start=Fraction(0)
+    )
+    return squared_deviations / (size - 1) / size
+
+
 @jaxtyped(typechecker=beartype)
 def welch_t_test(
     first: FirstSample,
     second: SecondSample,
 ) -> WelchTest:
-    """Compute Welch's unequal-variance t statistic and floor-rounded df."""
+    """Compute Welch's t statistic and the exact floor of the Welch-Satterthwaite df."""
     _require_finite(first, "first")
     _require_finite(second, "second")
     first_size = first.shape[0]
@@ -95,24 +111,17 @@ def welch_t_test(
     if first_size < 2 or second_size < 2:
         raise ValueError("Welch's t test requires at least two values per sample")
 
-    first_term = float(first.var(unbiased=True)) / first_size
-    second_term = float(second.var(unbiased=True)) / second_size
+    first_term = _exact_variance_term(first)
+    second_term = _exact_variance_term(second)
     standard_error_squared = first_term + second_term
-    if standard_error_squared == 0.0:
+    if standard_error_squared == 0:
         raise ValueError("Welch's t statistic is undefined when both samples are constant")
 
     statistic = (float(first.mean()) - float(second.mean())) / math.sqrt(
-        standard_error_squared
+        float(standard_error_squared)
     )
-    numerator = standard_error_squared**2
     denominator = first_term**2 / (first_size - 1) + second_term**2 / (second_size - 1)
-    if denominator == 0.0:
-        raise ValueError("Welch-Satterthwaite degrees of freedom are undefined at this precision")
-    raw_degrees_of_freedom = numerator / denominator
-    nearest_integer = round(raw_degrees_of_freedom)
-    if math.isclose(raw_degrees_of_freedom, nearest_integer, rel_tol=1.0e-12, abs_tol=1.0e-12):
-        raw_degrees_of_freedom = float(nearest_integer)
-    degrees_of_freedom = math.floor(raw_degrees_of_freedom)
+    degrees_of_freedom = math.floor(standard_error_squared**2 / denominator)
     return WelchTest(t_statistic=statistic, degrees_of_freedom=degrees_of_freedom)
 
 
