@@ -15,5 +15,8 @@
 | Score cache | A safetensors score vector plus JSON key-to-row index bound to an RM ID and chat-template hash. |
 | Pooling | Mean, last-content-token, elementwise maximum, or elementwise minimum over a mask-selected response span. |
 | DANN schedule | The sigmoid gradient-reversal weight ramp from domain-adversarial training (Ganin et al.), one of the configurable lambda-schedule shapes. |
+| SFT item | One unique train-split response preferred in at least one kept pair, with its tokenized conversation and loss-span labels. |
+| Dual-labeled key | A (prompt, response) key labeled preferred in one comparison and dispreferred in another. |
+| Run manifest | The JSON record an SFT run writes beside its checkpoint: schema version, config echo, dataset counts, loss history, final metrics, and the TRL version. |
 | Property test | A Hypothesis test that checks an invariant across generated examples. |
 | Slow test | A separately selected live-network or GPU integration test excluded from the default suite. |

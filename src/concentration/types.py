@@ -14,6 +14,7 @@ from phantom import Phantom
 
 ORTHONORMAL_ATOL = 1.0e-5
 MAX_SEED = 2**32 - 1
+IGNORE_INDEX = -100
 OrthonormalTensor = Float32[t.Tensor, "hidden rank"]
 FloatMatrix = Float[t.Tensor, "hidden rank"]
 PooledTensor = Float32[t.Tensor, "batch hidden"]

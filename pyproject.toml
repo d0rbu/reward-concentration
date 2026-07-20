@@ -18,10 +18,13 @@ dependencies = [
     "safetensors>=0.6.0",
     "torch>=2.7.0",
     "tqdm>=4.67.0",
-    "transformers>=4.55.0",
-    "trl>=0.21.0",
+    "transformers>=5.0.0",
+    "trl>=1.8.0",
     "wandb>=0.21.0",
 ]
+
+[project.scripts]
+concentration = "concentration.cli:main"
 
 [build-system]
 requires = ["hatchling"]

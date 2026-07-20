@@ -27,6 +27,7 @@ from concentration.config import (
     RewardHeadInit,
     RewardHeadMode,
     RewardModelConfig,
+    SFTTrainConfig,
     TrackAAlgorithm,
     TrackAConfig,
     WandbConfig,
@@ -46,6 +47,7 @@ CONFIG_CLASSES = (
     ConcentrationTrainConfig,
     TrackAConfig,
     WandbConfig,
+    SFTTrainConfig,
 )
 
 
@@ -292,6 +294,53 @@ def test_track_a_and_wandb_configs_reject_invalid_values() -> None:
         WandbConfig.from_raw(project=" ")
 
 
+def test_sft_train_config_refines_nested_and_numeric_boundaries() -> None:
+    policy = ModelConfig.from_raw(dtype="float32", device="cpu")
+    data = DataConfig.from_raw(max_len="64", seed="3")
+    wandb = WandbConfig.from_raw(mode="disabled", project="sft-tests")
+    config = SFTTrainConfig.from_raw(
+        policy=policy,
+        data=data,
+        seed="7",
+        learning_rate="0.002",
+        per_device_batch_size="2",
+        gradient_accumulation_steps="4",
+        max_steps="12",
+        warmup_frac="0.25",
+        output_dir="out/sft",
+        wandb=wandb,
+    )
+    assert config.policy is policy
+    assert config.data is data
+    assert config.wandb is wandb
+    assert isinstance(config.seed, Seed)
+    assert isinstance(config.learning_rate, NonNegativeFloat)
+    assert isinstance(config.per_device_batch_size, Rank)
+    assert isinstance(config.gradient_accumulation_steps, Rank)
+    assert isinstance(config.max_steps, Rank)
+    assert isinstance(config.warmup_frac, UnitInterval)
+    assert config.output_dir == "out/sft"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"learning_rate": 0},
+        {"per_device_batch_size": 0},
+        {"gradient_accumulation_steps": 0},
+        {"max_steps": 0},
+        {"warmup_frac": 1.1},
+        {"output_dir": " "},
+        {"epochs": 1},
+    ],
+)
+def test_sft_train_config_rejects_invalid_or_ambiguous_values(
+    kwargs: dict[str, object],
+) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        SFTTrainConfig.from_raw(**cast(Any, kwargs))
+
+
 def test_config_surface_contains_only_declared_fields() -> None:
     assert [item.name for item in fields(RepExtractionConfig)] == ["layer", "pooling"]
     assert [item.name for item in fields(RewardHeadConfig)] == [
@@ -307,6 +356,18 @@ def test_config_surface_contains_only_declared_fields() -> None:
         "max",
         "warmup_frac",
         "k",
+    ]
+    assert [item.name for item in fields(SFTTrainConfig)] == [
+        "policy",
+        "data",
+        "seed",
+        "learning_rate",
+        "per_device_batch_size",
+        "gradient_accumulation_steps",
+        "max_steps",
+        "warmup_frac",
+        "output_dir",
+        "wandb",
     ]
 
 
@@ -327,6 +388,11 @@ def test_config_surface_contains_only_declared_fields() -> None:
         lambda: ConcentrationTrainConfig(alternating=cast(Any, 1)),
         lambda: TrackAConfig(algo=cast(Any, "ppo")),
         lambda: WandbConfig(mode=cast(Any, "online")),
+        lambda: SFTTrainConfig(policy=cast(Any, "policy")),
+        lambda: SFTTrainConfig(data=cast(Any, "data")),
+        lambda: SFTTrainConfig(seed=cast(Any, object())),
+        lambda: SFTTrainConfig(learning_rate=cast(Any, object())),
+        lambda: SFTTrainConfig(wandb=cast(Any, "wandb")),
     ],
 )
 def test_direct_config_construction_rejects_unrefined_field_types(

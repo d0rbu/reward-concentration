@@ -4,7 +4,7 @@
 
 - Python 3.13
 - `uv`
-- a CUDA-capable GPU for later experiment workloads (the live smoke tests themselves run on CPU)
+- a CUDA-capable GPU for later experiment workloads (live smokes run on CPU; the SFT smoke uses CUDA when visible)
 
 Install `uv` if needed:
 
@@ -37,6 +37,17 @@ Run live Hugging Face integrations explicitly:
 ```bash
 uv run pytest -m slow
 ```
+
+Author a TOML config first (schema in `docs/reference/configuration.md`), e.g. `configs/sft.toml`,
+then run safety-SFT and smoke-test its held-out response perplexity:
+
+```bash
+uv run concentration sft configs/sft.toml
+uv run concentration ppl configs/sft.toml outputs/safety-sft --count 16 --batch-size 4
+```
+
+The SFT command refuses to start when its output directory is already non-empty. Generated
+checkpoints and run artifacts belong under ignored output paths, not in git.
 
 Use `uv add <package>` for runtime dependencies and `uv add --dev <package>` for development-only
 tooling, then commit the updated `uv.lock` with the dependency change.

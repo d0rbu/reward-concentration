@@ -104,11 +104,6 @@ def test_welch_t_matches_independent_numpy_formula(
     expected_t = (float(first_array.mean()) - float(second_array.mean())) / math.sqrt(
         first_term + second_term
     )
-    denominator = first_term**2 / (len(first) - 1) + second_term**2 / (len(second) - 1)
-    if denominator == 0.0:
-        with pytest.raises(ValueError):
-            welch_t_test(t.tensor(first), t.tensor(second))
-        return
     exact_first_term = _exact_variance_term(first)
     exact_second_term = _exact_variance_term(second)
     exact_denominator = exact_first_term**2 / (len(first) - 1) + exact_second_term**2 / (
@@ -123,6 +118,14 @@ def test_welch_t_matches_independent_numpy_formula(
     )
     assert result.t_statistic == pytest.approx(expected_t)
     assert result.degrees_of_freedom == expected_df
+
+
+def test_welch_df_floors_exactly_at_integer_boundaries() -> None:
+    result = welch_t_test(
+        t.tensor([0.0, 1.0], dtype=t.float64),
+        t.tensor([1.0, 2.0**-24], dtype=t.float64),
+    )
+    assert result.degrees_of_freedom == 1
 
 
 def test_welch_df_does_not_floor_one_ulp_below_an_exact_integer() -> None:
